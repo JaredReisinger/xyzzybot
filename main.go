@@ -8,7 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/fizmo-slack/remglk"
+	"github.com/JaredReisinger/fizmo-slack/interpreter"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 
 	logger.Info("Starting fizmo-slack...")
 
-	i, err := remglk.NewInterp(logger)
+	i, err := interpreter.NewInterp(logger)
 	if err != nil {
 		logger.WithError(err).Error("???")
 		return

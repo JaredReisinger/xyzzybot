@@ -1,4 +1,4 @@
-package remglk
+package interpreter
 
 import (
 	"bufio"
