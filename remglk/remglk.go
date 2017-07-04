@@ -36,7 +36,7 @@ func NewInterp(logger log.FieldLogger) (interp *Interp, err error) {
 	// 	return
 	// }
 
-	cmd := exec.Command("fizmo-remglk", "-fixmetrics", "-width", "80", "-height", "50", "/Users/jreising/OneDrive/Documents/Interactive Fiction/MiscIFGames/LostPig.zblorb")
+	cmd := exec.Command("fizmo-remglk", "-fixmetrics", "-width", "80", "-height", "50", "/Users/jreising/OneDrive/Documents/Interactive Fiction/MiscIFGames/curses.z5")
 
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -291,6 +291,10 @@ func (i *Interp) SendCommand(command string) {
 		Gen:    i.inputGen,
 		Window: i.inputWindow,
 		Value:  command,
+	}
+
+	if command == " " {
+		c.Type = "char"
 	}
 
 	b, err := json.Marshal(c)
