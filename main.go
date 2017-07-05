@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -18,15 +17,23 @@ func main() {
 
 	logger.Info("Starting fizmo-slack...")
 
-	i, err := interpreter.NewInterp(logger)
+	i, err := interpreter.NewInterpreter(logger)
 	if err != nil {
-		logger.WithError(err).Error("???")
+		logger.WithError(err).Error("creating interpreter")
 		return
 	}
 
-	time.Sleep(time.Second * 1)
+	err = i.Start()
+	if err != nil {
+		logger.WithError(err).Error("starting interpreter")
+		return
+	}
 
-	i.SendCommand("look")
+	// // send a "look" command in a bit...
+	// go func() {
+	// 	time.Sleep(time.Second * 1)
+	// 	i.SendCommand("look")
+	// }()
 
 	// wait until signal....
 	c := make(chan os.Signal, 1)

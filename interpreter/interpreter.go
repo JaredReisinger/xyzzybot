@@ -1,22 +1,19 @@
-package interpreter
+package interpreter // import "github.com/JaredReisinger/fizmo-slack/interpreter"
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"os"
 	"os/exec"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
 
-type Interp struct {
-	magic  int
-	logger log.FieldLogger
-	// exe     string
+// Interpreter represents (may be interface eventually) the command/output
+// interaction.
+type Interpreter struct {
+	// magic   int
+	logger  log.FieldLogger
 	cmd     *exec.Cmd
 	inPipe  io.WriteCloser
 	outPipe io.ReadCloser
@@ -24,10 +21,45 @@ type Interp struct {
 
 	inputWindow int
 	inputGen    int
+
+	// Output should be listened to (perhaps the interpreter should handle
+	// listeners added dynamically, so that debugging can be added without
+	// complicating things?)
+	Output chan *GlkOutput
+
+	// Input for the interpreter should be sent here
+	Input chan *Input
 }
 
-func NewInterp(logger log.FieldLogger) (interp *Interp, err error) {
-	logger = logger.WithField("component", "remglk")
+// The remote-Glk output format separates the window size declarations from the
+// output, which seems unnecessarily complicated (although perhaps a better
+// reflection of the Z-Machine design).  We use a simplified model for
+// interpreter interaction.
+
+// Input represents input to the interpreter
+type Input struct {
+	WindowID int // really? can we use the zero-value for "default"?
+	Type     InputType
+	Text     string
+}
+
+// InputType ...
+type InputType int
+
+const (
+	// NoInputType ...
+	NoInputType InputType = iota
+	// InitInput ...
+	InitInput
+	// TextInput ...
+	TextInput
+	// CharacterInput ...
+	CharacterInput
+)
+
+// NewInterpreter ...
+func NewInterpreter(logger log.FieldLogger) (interp *Interpreter, err error) {
+	logger = logger.WithField("component", "interpreter")
 
 	// attempt to start a subprocess for the game...
 	// exe, err := exec.LookPath("fizmo-remglk")
@@ -43,265 +75,77 @@ func NewInterp(logger log.FieldLogger) (interp *Interp, err error) {
 		logger.WithError(err).Error("getting stdin")
 		return
 	}
+
 	outPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		logger.WithError(err).Error("getting stdout")
 		return
 	}
+
 	errPipe, err := cmd.StderrPipe()
 	if err != nil {
 		logger.WithError(err).Error("getting stderr")
 		return
 	}
 
-	err = cmd.Start()
-	if err != nil {
-		logger.WithError(err).Error("starting child process")
-		return
-	}
-
-	logger = logger.WithFields(log.Fields{
-		"pid": cmd.Process.Pid,
-		// "game": "????",
-		// "channel": "???",
-	})
-
-	logger.WithFields(log.Fields{
-		// "exe": exe,
-		"cmd": cmd,
-	}).Info("running fizmo")
-
-	interp = &Interp{
-		logger: logger,
-		// exe:     exe,
+	interp = &Interpreter{
+		logger:  logger,
 		cmd:     cmd,
 		inPipe:  inPipe,
 		outPipe: outPipe,
 		errPipe: errPipe,
-	}
 
-	// Kick off the out/err listeners?
-	go interp.ProcessOutput()
-	go interp.ProcessInput()
+		Input:  make(chan *Input, 5),
+		Output: make(chan *GlkOutput, 5),
+	}
 
 	return
 }
 
-// Output info...
-type Window struct {
-	ID         int
-	Type       string
-	Rock       int
-	GridWidth  *int
-	GridHeight *int
-	Left       int
-	Top        int
-	Width      int
-	Height     int
-}
+// Start starts up the interpreter
+func (i *Interpreter) Start() error {
+	// Kick off the out/err listeners?
+	go i.ProcessRemGlkOutput()
+	go i.ProcessInput()
 
-func (w *Window) String() string {
-	return fmt.Sprintf("(WINDOW %d (%s): @%d,%d, %dx%d)", w.ID, w.Type, w.Left, w.Top, w.Width, w.Height)
-}
+	go i.debugInterpreterOutput()
 
-type TextInfo struct {
-	Style string
-	Text  string
-}
-
-func (t *TextInfo) String() string {
-	return fmt.Sprintf("(%s) %q", t.Style, t.Text)
-}
-
-type TextInfos []*TextInfo
-
-func (t *TextInfos) String() string {
-	if t == nil {
-		return ""
+	err := i.cmd.Start()
+	if err != nil {
+		i.logger.WithError(err).Error("starting child process")
+		return err
 	}
-	l := make([]string, 0, len(*t))
-	for _, c := range *t {
-		l = append(l, fmt.Sprintf("[%s]", c.String()))
-	}
-	return strings.Join(l, "")
 
+	i.logger = i.logger.WithFields(log.Fields{
+		"pid": i.cmd.Process.Pid,
+		// "game": "????",
+		// "channel": "???",
+	})
+
+	i.logger.WithField("cmd", i.cmd).Info("running fizmo")
+	return nil
 }
 
-type TextContent struct {
-	Content TextInfos
-	Append  *bool
-}
-
-func (t *TextContent) String() string {
-	append := ""
-	if t.Append != nil {
-		append = "APPEND:"
-	}
-	return fmt.Sprintf("%s[%s]", append, t.Content)
-}
-
-type Line struct {
-	Line    int
-	Content TextInfos
-}
-
-func (l *Line) String() string {
-	return fmt.Sprintf("line %d: [%s]", l.Line, l.Content)
-}
-
-type WindowContent struct {
-	ID    int
-	Clear *bool
-	Lines []*Line
-	Text  []*TextContent
-}
-
-func (w *WindowContent) String() string {
-	l := make([]string, 0, 1+len(w.Lines)+len(w.Text))
-	l = append(l, fmt.Sprintf("[[window %d]]", w.ID))
-	for _, c := range w.Lines {
-		l = append(l, c.String())
-	}
-	for _, c := range w.Text {
-		l = append(l, c.String())
-	}
-	return strings.Join(l, "\n")
-}
-
-type InputRequest struct {
-	ID     int
-	Gen    int
-	Type   string
-	MaxLen int
-}
-
-type Output struct {
-	Type    string
-	Gen     int
-	Windows []*Window
-	Content []*WindowContent
-	Input   []*InputRequest
-}
-
-func (i *Interp) ProcessOutput() {
-	// r := bufio.NewReader(i.outPipe)
-	// s := r.ReadString("\n")
-	decoder := json.NewDecoder(i.outPipe)
+// DebugInterpreterOutput ...
+func (i *Interpreter) debugInterpreterOutput() {
 	for {
-		output := &Output{}
-		err := decoder.Decode(&output)
-		if err == io.EOF {
-			i.logger.Info("read EOF")
-			break
-		} else if err != nil {
-			i.logger.WithError(err).Error("decoding JSON")
-			// skip/eat the error?
-			// return
-		}
-		// i.logger.WithField("output", output).Debug("read JSON")
-		// i.logger.Debugf("output: %#v", output)
-
-		i.logger.WithFields(log.Fields{
-			"type":    output.Type,
-			"gen":     output.Gen,
-			"windows": output.Windows,
-			"input":   output.Input,
-		}).Debug("read JSON")
-
-		l := make([]string, 0)
-
-		for _, w := range output.Content {
-			// i.logger.WithFields(log.Fields{
-			// 	"id":    w.ID,
-			// 	"lines": w.Lines,
-			// 	"text":  w.Text,
-			// }).Debug("window content")
-			l = append(l, w.String())
-		}
-		fmt.Println(strings.Join(l, "\n"))
-
-		// Assume there's only one input?
-		// (and always one?)
-		i.inputWindow = output.Input[0].ID
-		i.inputGen = output.Input[0].Gen
+		output := <-i.Output
+		// i.logger.WithField("output", output).Debug("recieved output")
+		i.simpleOutput(output)
 	}
 }
 
-func (i *Interp) Kill() {
-	err := i.inPipe.Close()
-	if err != nil {
-		i.logger.WithError(err).Error("closing stdin")
-	}
-	// err = i.outPipe.Close()
-	// if err != nil {
-	// 	i.logger.WithError(err).Error("closing stdout")
-	// }
-	// err = i.errPipe.Close()
-	// if err != nil {
-	// 	i.logger.WithError(err).Error("closing stderr")
-	// }
-	b, err := ioutil.ReadAll(i.outPipe)
-	if err != nil {
-		i.logger.WithError(err).Error("reading output")
-	} else {
-		// i.logger.WithField("stdout", string(b)).Info("closing...")
-		i.logger.Debugf("output: %q", string(b))
+func (i *Interpreter) simpleOutput(output *GlkOutput) {
+	sep1 := "============================================================"
+	sep2 := "------------------------------------------------------------"
+	lines := []string{sep1}
+
+	for _, w := range output.Windows {
+		lines = append(lines, w.Content.SlackString())
+		lines = append(lines, sep2)
 	}
 
-	b, err = ioutil.ReadAll(i.errPipe)
-	if err != nil {
-		i.logger.WithError(err).Error("reading output")
-	} else {
-		i.logger.WithField("stderr", string(b)).Info("closing...")
-	}
+	lines = append(lines, sep1)
 
-	err = i.cmd.Wait()
-	if err != nil {
-		i.logger.WithError(err).Error("waiting for completion")
-		return
-	}
-}
-
-func (i *Interp) ProcessInput() {
-	// read from stdin, and send commands...
-	r := bufio.NewReader(os.Stdin)
-	for {
-		s, err := r.ReadString("\n"[0])
-		if err != nil {
-			i.logger.WithError(err).Error("reading input")
-			return
-		}
-		i.SendCommand(s[:len(s)-1])
-	}
-}
-
-type InputCommand struct {
-	Type   string `json:"type"`
-	Gen    int    `json:"gen"`
-	Window int    `json:"window"`
-	Value  string `json:"value"`
-}
-
-func (i *Interp) SendCommand(command string) {
-	i.logger.WithField("command", command).Info("handling command")
-
-	// We need to know the last gen and the correct window...
-	c := &InputCommand{
-		Type:   "line",
-		Gen:    i.inputGen,
-		Window: i.inputWindow,
-		Value:  command,
-	}
-
-	if command == " " {
-		c.Type = "char"
-	}
-
-	b, err := json.Marshal(c)
-	if err != nil {
-		i.logger.WithError(err).Error("creating JSON")
-		return
-	}
-
-	i.inPipe.Write(b)
+	fmt.Println(strings.Join(lines, "\n"))
 }
