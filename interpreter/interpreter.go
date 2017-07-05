@@ -16,6 +16,7 @@ type Interpreter struct {
 	inPipe  io.WriteCloser
 	outPipe io.ReadCloser
 	errPipe io.ReadCloser
+	killing bool
 
 	inputWindow int
 	inputGen    int
@@ -124,10 +125,10 @@ func (i *Interpreter) Start() error {
 	return nil
 }
 
-// DebugInterpreterOutput ...
-func (i *Interpreter) debugInterpreterOutput() {
-	for {
-		output := <-i.Output
-		i.logger.WithField("output", output).Debug("recieved output")
-	}
-}
+// // debugInterpreterOutput ...
+// func (i *Interpreter) debugInterpreterOutput() {
+// 	for {
+// 		output := <-i.Output
+// 		i.logger.WithField("output", output).Debug("recieved output")
+// 	}
+// }

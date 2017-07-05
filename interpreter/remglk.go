@@ -118,13 +118,18 @@ func (i *Interpreter) ProcessRemGlkOutput() {
 	for {
 		output := &GlkOutput{}
 		err := decoder.Decode(&output)
+		if i.killing {
+			// bail immediately if we're killing the interpreter
+			return
+		}
 		if err == io.EOF {
 			i.logger.Info("read EOF")
-			break
+			return
 		} else if err != nil {
 			i.logger.WithError(err).Error("decoding JSON")
 			// skip/eat the error? perhaps we need a way to pass errors along to
 			// any listeners?
+			continue
 		}
 
 		// The Glk specification says that values (like window specifications)
@@ -184,31 +189,25 @@ func (p byPosition) Less(i, j int) bool {
 
 // Kill ...
 func (i *Interpreter) Kill() {
+	i.logger.Info("received kill request")
+	i.killing = true
 	err := i.inPipe.Close()
 	if err != nil {
 		i.logger.WithError(err).Error("closing stdin")
 	}
-	// err = i.outPipe.Close()
-	// if err != nil {
-	// 	i.logger.WithError(err).Error("closing stdout")
-	// }
-	// err = i.errPipe.Close()
-	// if err != nil {
-	// 	i.logger.WithError(err).Error("closing stderr")
-	// }
+
 	b, err := ioutil.ReadAll(i.outPipe)
 	if err != nil {
-		i.logger.WithError(err).Error("reading output")
+		i.logger.WithError(err).Error("clearing stdout")
 	} else {
-		// i.logger.WithField("stdout", string(b)).Info("closing...")
-		i.logger.Debugf("output: %q", string(b))
+		i.logger.WithField("stdout", string(b)).Debug("clearing stdout")
 	}
 
 	b, err = ioutil.ReadAll(i.errPipe)
 	if err != nil {
-		i.logger.WithError(err).Error("reading output")
+		i.logger.WithError(err).Error("clearing stderr")
 	} else {
-		i.logger.WithField("stderr", string(b)).Info("closing...")
+		i.logger.WithField("stderr", string(b)).Debug("clearing stderr")
 	}
 
 	err = i.cmd.Wait()

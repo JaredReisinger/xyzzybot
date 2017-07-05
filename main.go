@@ -7,7 +7,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/fizmo-slack/interpreter"
 	"github.com/JaredReisinger/fizmo-slack/slack"
 )
 
@@ -18,32 +17,14 @@ func main() {
 
 	logger.Info("Starting fizmo-slack...")
 
-	s := slack.NewSender("@jaredreisinger", logger)
-
-	i, err := interpreter.NewInterpreter(logger)
-	if err != nil {
-		logger.WithError(err).Error("creating interpreter")
-		return
-	}
-
-	go s.Listen(i.Output)
-
-	err = i.Start()
-	if err != nil {
-		logger.WithError(err).Error("starting interpreter")
-		return
-	}
-
-	// // send a "look" command in a bit...
-	// go func() {
-	// 	time.Sleep(time.Second * 1)
-	// 	i.SendCommand("look")
-	// }()
+	c := slack.NewChannel("@jaredreisinger", logger)
+	c.StartGame("XXXXX")
+	defer c.Kill()
 
 	// wait until signal....
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGPIPE, syscall.SIGKILL)
-	sig := <-c
-	logger.WithField("signal", sig).Warn("got signal")
-	i.Kill()
+	q := make(chan os.Signal, 1)
+	signal.Notify(q, syscall.SIGHUP, syscall.SIGINT, syscall.SIGPIPE, syscall.SIGKILL, syscall.SIGTERM)
+	sig := <-q
+	logger.WithField("signal", sig).Info("got signal")
+	// os.Exit(1)
 }
