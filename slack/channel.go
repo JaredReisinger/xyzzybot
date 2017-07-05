@@ -2,24 +2,28 @@ package slack
 
 import (
 	"errors"
+	"path"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/JaredReisinger/fizmo-slack/interpreter"
+	"github.com/JaredReisinger/fizmo-slack/util"
 )
 
 // Channel represents a Slack channel (or user direct-message) to which we're
 // connected.
 type Channel struct {
 	Name   string
+	config *util.Config
 	interp *interpreter.Interpreter
 	logger log.FieldLogger
 }
 
-func NewChannel(name string, logger log.FieldLogger) *Channel {
+func NewChannel(config *util.Config, name string, logger log.FieldLogger) *Channel {
 	return &Channel{
-		Name: name,
+		Name:   name,
+		config: config,
 		logger: logger.WithFields(log.Fields{
 			"component": "slack",
 			"channel":   name,
@@ -35,7 +39,9 @@ func (c *Channel) StartGame(name string) error {
 	}
 
 	// Create a new interpreter for the requested game...
-	i, err := interpreter.NewInterpreter(c.logger)
+	gameFile := path.Join(c.config.GameDirectory, name)
+	c.logger.WithField("gameFile", gameFile).Info("starting game")
+	i, err := interpreter.NewInterpreter(c.config, gameFile, c.logger)
 	if err != nil {
 		c.logger.WithError(err).Error("starting interpreter")
 		return err

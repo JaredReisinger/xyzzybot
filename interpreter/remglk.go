@@ -116,6 +116,12 @@ func (i *Interpreter) ProcessRemGlkOutput() {
 	var windows []*GlkWindow
 	decoder := json.NewDecoder(i.outPipe)
 	for {
+		// buf := make([]byte, 0, 10)
+		// _, err := i.outPipe.Read(buf)
+		// i.logger.WithError(err).WithField("data", string(buf)).Debug("got...")
+		// if i != nil {
+		// 	continue
+		// }
 		output := &GlkOutput{}
 		err := decoder.Decode(&output)
 		if i.killing {
@@ -170,8 +176,10 @@ func (i *Interpreter) ProcessRemGlkOutput() {
 
 		// Assume there's only one input? (and always one?)  (This should live
 		// in the interpreter proper, rather than the remglk layer)
-		i.inputWindow = output.Input[0].ID
-		i.inputGen = output.Input[0].Gen
+		if len(output.Input) > 0 {
+			i.inputWindow = output.Input[0].ID
+			i.inputGen = output.Input[0].Gen
+		}
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"os/exec"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/JaredReisinger/fizmo-slack/util"
 )
 
 // Interpreter represents (may be interface eventually) the command/output
@@ -57,7 +59,7 @@ const (
 )
 
 // NewInterpreter ...
-func NewInterpreter(logger log.FieldLogger) (interp *Interpreter, err error) {
+func NewInterpreter(config *util.Config, gameFile string, logger log.FieldLogger) (interp *Interpreter, err error) {
 	logger = logger.WithField("component", "interpreter")
 
 	// attempt to start a subprocess for the game...
@@ -67,7 +69,7 @@ func NewInterpreter(logger log.FieldLogger) (interp *Interpreter, err error) {
 	// 	return
 	// }
 
-	cmd := exec.Command("fizmo-remglk", "-fixmetrics", "-width", "80", "-height", "50", "/Users/jreising/OneDrive/Documents/Interactive Fiction/MiscIFGames/curses.z5")
+	cmd := exec.Command("fizmo-remglk", "-fixmetrics", "-width", "80", "-height", "50", gameFile)
 
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {

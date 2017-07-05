@@ -1,6 +1,7 @@
 package main // import "github.com/JaredReisinger/fizmo-slack"
 
 import (
+	"flag"
 	"os"
 	"os/signal"
 	"syscall"
@@ -8,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/JaredReisinger/fizmo-slack/slack"
+	"github.com/JaredReisinger/fizmo-slack/util"
 )
 
 func main() {
@@ -15,10 +17,18 @@ func main() {
 	logBase.Level = log.DebugLevel
 	logger := logBase.WithField("component", "main")
 
+	configParam := util.AddConfigFlag()
+	flag.Parse()
+
+	config, err := util.ParseConfigFile(*configParam, logBase)
+	if err != nil {
+		logger.Fatalf("error parsing config file: %#v\n", err)
+	}
+
 	logger.Info("Starting fizmo-slack...")
 
-	c := slack.NewChannel("@jaredreisinger", logger)
-	c.StartGame("XXXXX")
+	c := slack.NewChannel(config, "@jaredreisinger", logger)
+	c.StartGame("curses.z5")
 	defer c.Kill()
 
 	// wait until signal....
