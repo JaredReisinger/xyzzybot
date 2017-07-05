@@ -1,7 +1,9 @@
 package slack
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path"
 	"strings"
 
@@ -69,7 +71,79 @@ func (c *Channel) ListenForGameOutput(outchan chan *interpreter.GlkOutput) {
 		}
 		debugOutput := c.debugFormat(output)
 		c.logger.WithField("output", debugOutput).Debug("recieved output")
+
+		message := c.createMessage(output)
+		b, err := json.Marshal(message)
+		if err != nil {
+			c.logger.WithError(err).Error("encoding JSON")
+			return
+		}
+		c.logger.Debugf("FOR SLACK:\n%s", string(b))
 	}
+}
+
+// Message is a Slack message
+type Message struct {
+	Username    string        `json:"username,omitempty"`
+	Channel     string        `json:"channel,omitempty"`
+	Text        string        `json:"text"`
+	Attachments []*Attachment `json:"attachments"`
+}
+
+type Attachment struct {
+	Fields []*Field `json:"fields"` // don't omit on empty... to force footer
+	Footer string   `json:"footer"`
+}
+
+type Field struct {
+}
+
+func (c *Channel) createMessage(output *interpreter.GlkOutput) *Message {
+	message := &Message{
+		// Channel: c.Name,
+		Username: "fizmobot",
+	}
+
+	lines := []string{}
+
+	for _, w := range output.Windows {
+		windowText := FormatWindow(w)
+
+		// If the window looks like a status window, make its text into a footer
+		// instead of part of the body.
+		if inferStatusWindow(w) {
+			message.Attachments = []*Attachment{
+				&Attachment{
+					Footer: windowText,
+				},
+			}
+		} else {
+			lines = append(lines, FormatWindow(w))
+		}
+	}
+
+	text := strings.Join(lines, "\n")
+	leader := ""
+
+	// horribly gross special handling to make Slack pay attention to leading
+	// whitespace:
+	if len(text) > 0 {
+		if text[0] == '\n' {
+			leader = "."
+		} else if text[0] == ' ' {
+			leader = ".\n"
+		}
+	}
+
+	message.Text = fmt.Sprintf("%s%s", leader, text)
+
+	return message
+}
+
+func inferStatusWindow(w *interpreter.GlkWindow) bool {
+	return w.Type == interpreter.TextGridWindowType &&
+		w.Top == 0 &&
+		w.Height <= 5
 }
 
 func (c *Channel) debugFormat(output *interpreter.GlkOutput) string {

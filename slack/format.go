@@ -9,8 +9,9 @@ import (
 	"github.com/JaredReisinger/fizmo-slack/interpreter"
 )
 
-func FormatSpan(span *interpreter.GlkSpan) string {
+func FormatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
 	// log.WithField("span", span).Debug("FormatSpan")
+	formatted := ""
 	format := "%s"
 	switch span.Style {
 	case interpreter.NormalSpanStyle:
@@ -19,18 +20,30 @@ func FormatSpan(span *interpreter.GlkSpan) string {
 		format = "_%s_"
 	case interpreter.PreformattedSpanStyle:
 		format = "`%s`"
+		// If there's leading whitespace, and this is a single span, we
+		// probably want to make the leading (and any trailing) whitepace *not*
+		// preformatted.
+		if singleSpan && span.Text[0] == ' ' {
+			// log.Debug("leading-space, single-span preformatted text!")
+			mid := strings.TrimLeft(span.Text, " ")
+			formatted = fmt.Sprintf("%s`%s`", strings.Repeat(" ", len(span.Text)-len(mid)), mid)
+		}
 	case interpreter.HeaderSpanStyle:
 		format = "*%s*"
 	case interpreter.SubheaderSpanStyle:
 		format = "*%s*"
 	case interpreter.AlertSpanStyle:
-		format = "[%s]"
+		format = "[alert: %s]"
 	case interpreter.NoteSpanStyle:
-		format = "[%s]"
+		format = "[note: %s]"
 	case interpreter.BlockQuoteSpanStyle:
 		format = "> %s"
 	case interpreter.InputSpanStyle:
-		format = "%s"
+		if singleSpan {
+			format = "_command: *%q*_\n"
+		} else {
+			format = "_command: *%q*_"
+		}
 	case interpreter.User1SpanStyle:
 		format = "%s"
 	case interpreter.User2SpanStyle:
@@ -39,7 +52,11 @@ func FormatSpan(span *interpreter.GlkSpan) string {
 		log.WithField("style", span.Style).Warn("unknown style")
 	}
 
-	return fmt.Sprintf(format, span.Text)
+	if formatted == "" {
+		formatted = fmt.Sprintf(format, span.Text)
+	}
+
+	return formatted
 }
 
 func FormatSpans(spans *interpreter.GlkSpans) string {
@@ -49,8 +66,9 @@ func FormatSpans(spans *interpreter.GlkSpans) string {
 	}
 
 	line := make([]string, 0, len(*spans))
+	singleSpan := len(*spans) == 1
 	for _, s := range *spans {
-		line = append(line, FormatSpan(s))
+		line = append(line, FormatSpan(s, singleSpan))
 	}
 
 	return strings.Join(line, "")
