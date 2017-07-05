@@ -1,10 +1,8 @@
 package interpreter // import "github.com/JaredReisinger/fizmo-slack/interpreter"
 
 import (
-	"fmt"
 	"io"
 	"os/exec"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -108,7 +106,7 @@ func (i *Interpreter) Start() error {
 	go i.ProcessRemGlkOutput()
 	go i.ProcessInput()
 
-	go i.debugInterpreterOutput()
+	// go i.debugInterpreterOutput()
 
 	err := i.cmd.Start()
 	if err != nil {
@@ -130,22 +128,6 @@ func (i *Interpreter) Start() error {
 func (i *Interpreter) debugInterpreterOutput() {
 	for {
 		output := <-i.Output
-		// i.logger.WithField("output", output).Debug("recieved output")
-		i.simpleOutput(output)
+		i.logger.WithField("output", output).Debug("recieved output")
 	}
-}
-
-func (i *Interpreter) simpleOutput(output *GlkOutput) {
-	sep1 := "============================================================"
-	sep2 := "------------------------------------------------------------"
-	lines := []string{sep1}
-
-	for _, w := range output.Windows {
-		lines = append(lines, w.Content.SlackString())
-		lines = append(lines, sep2)
-	}
-
-	lines = append(lines, sep1)
-
-	fmt.Println(strings.Join(lines, "\n"))
 }

@@ -45,37 +45,6 @@ func (t *GlkSpan) String() string {
 	return fmt.Sprintf("%s:%q", t.Style, t.Text)
 }
 
-// SlackString formats the span using Slack markdown.
-func (t *GlkSpan) SlackString() string {
-	format := "%s"
-	switch t.Style {
-	case NormalSpanStyle:
-		format = "%s"
-	case EmphasizedSpanStyle:
-		format = "_%s_"
-	case PreformattedSpanStyle:
-		format = "`%s`"
-	case HeaderSpanStyle:
-		format = "*%s*"
-	case SubheaderSpanStyle:
-		format = "*%s*"
-	case AlertSpanStyle:
-		format = "[%s]"
-	case NoteSpanStyle:
-		format = "[%s]"
-	case BlockQuoteSpanStyle:
-		format = "> %s"
-	case InputSpanStyle:
-		format = "%s"
-	case User1SpanStyle:
-		format = "%s"
-	case User2SpanStyle:
-		format = "%s"
-	}
-
-	return fmt.Sprintf(format, t.Text)
-}
-
 // GlkSpans ...
 type GlkSpans []*GlkSpan
 
@@ -90,22 +59,10 @@ func (s *GlkSpans) String() string {
 	return fmt.Sprintf("[%s]", strings.Join(l, ", "))
 }
 
-// SlackString formats the spans using Slack markdown.
-func (s *GlkSpans) SlackString() string {
-	if s == nil {
-		return ""
-	}
-	l := make([]string, 0, len(*s))
-	for _, c := range *s {
-		l = append(l, c.SlackString())
-	}
-	return strings.Join(l, "")
-}
-
 // GlkTextContent ...
 type GlkTextContent struct {
 	Append  *bool
-	Content GlkSpans
+	Content *GlkSpans
 }
 
 func (t *GlkTextContent) String() string {
@@ -116,24 +73,14 @@ func (t *GlkTextContent) String() string {
 	return fmt.Sprintf("%s%s", append, t.Content)
 }
 
-// SlackString formats the spans using Slack markdown.
-func (t *GlkTextContent) SlackString() string {
-	return t.Content.SlackString()
-}
-
 // GlkLine ...
 type GlkLine struct {
 	Line    int
-	Content GlkSpans
+	Content *GlkSpans
 }
 
 func (l *GlkLine) String() string {
 	return fmt.Sprintf("line %d: %s", l.Line, l.Content)
-}
-
-// SlackString formats the spans using Slack markdown.
-func (l *GlkLine) SlackString() string {
-	return l.Content.SlackString()
 }
 
 // GlkWindowContent ...
@@ -152,18 +99,6 @@ func (w *GlkWindowContent) String() string {
 	}
 	for _, c := range w.Text {
 		l = append(l, c.String())
-	}
-	return strings.Join(l, "\n")
-}
-
-// SlackString formats the spans using Slack markdown.
-func (w *GlkWindowContent) SlackString() string {
-	l := make([]string, 0, len(w.Lines)+len(w.Text))
-	for _, c := range w.Lines {
-		l = append(l, c.SlackString())
-	}
-	for _, c := range w.Text {
-		l = append(l, c.SlackString())
 	}
 	return strings.Join(l, "\n")
 }
