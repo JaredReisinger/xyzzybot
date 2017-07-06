@@ -7,7 +7,7 @@ build:
 .PHONY: build
 
 try: build
-	./fizmo-slack
+	./fizmo-slack -config ./config/development.json
 .PHONY: try
 
 # lint:

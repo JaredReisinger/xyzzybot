@@ -1,4 +1,7 @@
 fizmo-slack
+config/development.json
+config/staging.json
+config/production.json
 
 # generated files...
 *_string.go

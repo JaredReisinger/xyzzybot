@@ -16,19 +16,21 @@ import (
 // Channel represents a Slack channel (or user direct-message) to which we're
 // connected.
 type Channel struct {
-	Name   string
+	ID     string
 	config *util.Config
 	interp *interpreter.Interpreter
 	logger log.FieldLogger
 }
 
-func NewChannel(config *util.Config, name string, logger log.FieldLogger) *Channel {
+type channelMap map[string]*Channel
+
+func NewChannel(config *util.Config, id string, logger log.FieldLogger) *Channel {
 	return &Channel{
-		Name:   name,
+		ID:     id,
 		config: config,
 		logger: logger.WithFields(log.Fields{
 			"component": "slack",
-			"channel":   name,
+			"channel":   id,
 		}),
 	}
 }

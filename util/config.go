@@ -13,6 +13,14 @@ import (
 type Config struct {
 	GameDirectory string
 
+	Slack struct {
+		ClientID                string
+		ClientSecret            string
+		VerificationToken       string
+		OAuthAccessToken        string
+		BotUserOAuthAccessToken string
+	}
+
 	Logger log.FieldLogger `json:"-"`
 }
 
@@ -20,9 +28,8 @@ type Config struct {
 // file.
 func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config, err error) {
 	config = &Config{
-		// debug/default value for game directory...
-		GameDirectory: "/Users/jreising/OneDrive/Documents/Interactive Fiction/MiscIFGames/",
-		Logger:        logger,
+		// GameDirectory: "(NONE)",
+		Logger: logger,
 	}
 
 	if len(configFile) == 0 {
