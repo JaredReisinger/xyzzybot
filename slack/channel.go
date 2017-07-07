@@ -184,7 +184,7 @@ func (c *Channel) handleCommand(command string) {
 	command = strings.TrimPrefix(command, "/")
 
 	// right now, we only do super-simple command parsing...
-	words := strings.Split(command, " ")
+	words := strings.Fields(command)
 	dispatch := map[string]commandHandler{
 		"help":   c.commandHelp,
 		"status": c.commandStatus,

@@ -2,6 +2,7 @@ package slack
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -180,9 +181,18 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 		return
 	}
 
-	command, ok := rtm.shouldBeCommand(msgEvent.Text)
-	if !ok {
-		// doesn't look like a command... ignore it!
+	// It's more efficient to perform the minimal evalution needed to determine
+	// whether the message represents a command or not... but it's much harder
+	// to read the logic that way.
+	text := msgEvent.Text
+	forSomeoneElse := rtm.isForSomeoneElse(text)
+	toUs := rtm.isExplicitlyToUs(text)
+	// Ensure any direct-address (to us) is stripped first...
+	command := strings.TrimPrefix(text, rtm.selfLink)
+	command = strings.TrimSpace(command)
+	looksLike := rtm.looksLikeCommand(command)
+
+	if forSomeoneElse || (!toUs && !looksLike) {
 		return
 	}
 
@@ -193,23 +203,34 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 	} else {
 		c.handleCommand(command)
 	}
-
 }
 
-func (rtm *RTM) shouldBeCommand(text string) (string, bool) {
-	return rtm.directlyAddressed(text)
+func (rtm *RTM) looksLikeCommand(text string) bool {
+	words := strings.Fields(text)
+	// If it's more than 4 words, it's *probably* not a command
+	return len(words) <= 4
 }
 
-func (rtm *RTM) directlyAddressed(text string) (string, bool) {
-	// TODO: handle direct messages differently?  What about low-member-count
-	// channels?  Should this be configurable?
-	if !strings.HasPrefix(text, rtm.selfLink) {
-		return "", false
+var userLink = regexp.MustCompile("<@([^>]+)>")
+
+// a message is for someone else if they are directly mentioned
+func (rtm *RTM) isForSomeoneElse(text string) bool {
+	matches := userLink.FindAllStringSubmatch(text, -1)
+
+	// If *any* match is for not-us, we can be definite...
+	for _, match := range matches {
+		if len(match) > 1 && match[1] != rtm.authInfo.UserID {
+			return true
+		}
 	}
 
-	command := strings.TrimPrefix(text, rtm.selfLink)
-	command = strings.TrimSpace(command)
-	return command, true
+	return false
+}
+
+func (rtm *RTM) isExplicitlyToUs(text string) bool {
+	// TODO: handle direct messages differently?  What about low-member-count
+	// channels?  Should this be configurable?
+	return strings.HasPrefix(text, rtm.selfLink)
 }
 
 func (rtm *RTM) handleCommand(channel string, command string) {
