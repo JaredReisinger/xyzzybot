@@ -18,10 +18,13 @@ type RTM struct {
 	logger   log.FieldLogger
 	slackRTM *slack.RTM
 	authInfo slack.AuthTestResponse
+	self     *slack.UserDetails
 	selfLink string
-	channels channelMap
+	rooms    roomMap
 	quit     chan bool
 }
+
+type roomMap map[string]*Room
 
 // StartRTM ...
 func StartRTM(config *util.Config) (rtm *RTM, err error) {
@@ -43,7 +46,7 @@ func StartRTM(config *util.Config) (rtm *RTM, err error) {
 		slackRTM: client.NewRTM(),
 		authInfo: *resp,
 		selfLink: fmt.Sprintf("<@%s>", resp.UserID),
-		channels: make(channelMap, 0),
+		rooms:    make(roomMap, 0),
 		quit:     make(chan bool),
 	}
 
@@ -89,7 +92,7 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 
 	case *slack.ChannelJoinedEvent:
 		rtm.logger.WithField("channel", t.Channel).Info("joined channel")
-		rtm.addChannel(t.Channel.ID, false)
+		rtm.addRoom(t.Channel.ID, false)
 
 	case *slack.ChannelLeftEvent:
 		rtm.logger.WithFields(log.Fields{
@@ -99,7 +102,7 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 
 	case *slack.GroupJoinedEvent:
 		rtm.logger.WithField("channel", t.Channel).Info("joined group (private channel)")
-		rtm.addChannel(t.Channel.ID, false)
+		rtm.addRoom(t.Channel.ID, false)
 
 	case *slack.GroupLeftEvent:
 		rtm.logger.WithFields(log.Fields{
@@ -120,29 +123,48 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 }
 
 func (rtm *RTM) handleConnectedEvent(connEvent *slack.ConnectedEvent) {
-	// rtm.logger.WithField("info", connEvent.Info).Info("connected")
+	info := connEvent.Info
+
+	// rtm.logger.WithField("info", info).Info("connected")
 	rtm.logger.Info("connected")
-	for _, c := range connEvent.Info.Channels {
-		// rtm.logger.WithFields(log.Fields{
-		// 	"channel": c.Name,
-		// 	"member":  c.IsMember,
-		// 	"open":    c.IsOpen,
-		// }).Debug("channel info")
+
+	// connEvent.Info.User includes details that may be better than those from
+	// authtest...
+	rtm.self = info.User
+
+	// info.Channels includes *all* public channels... we only care about the
+	// ones of which we're a member.
+	for _, c := range info.Channels {
 		if c.IsMember {
-			rtm.addChannel(c.ID, true)
+			rtm.logger.WithFields(log.Fields{
+				"channel": c.Name,
+				// "open":    c.IsOpen,
+			}).Debug("adding channel")
+			rtm.addRoom(c.ID, true)
 		}
 	}
-	for _, g := range connEvent.Info.Groups {
-		// rtm.logger.WithFields(log.Fields{
-		// 	"channel": g.Name,
-		// 	"open":    g.IsOpen,
-		// }).Debug("group info")
-		rtm.addChannel(g.ID, true)
+
+	// info.Groups includes *only* groups (private channels) of which we're
+	// already a member.
+	for _, g := range info.Groups {
+		rtm.logger.WithFields(log.Fields{
+			"group": g.Name,
+			// "open":  g.IsOpen,
+		}).Debug("adding group (private channel)")
+		rtm.addRoom(g.ID, true)
+	}
+
+	for _, d := range info.IMs {
+		rtm.logger.WithFields(log.Fields{
+			"id": d.ID,
+			// "open": d.IsOpen,
+			"user": d.User,
+		}).Debug("direct message (im) info")
 	}
 }
 
-func (rtm *RTM) addChannel(channel string, initialStartup bool) {
-	_, ok := rtm.channels[channel]
+func (rtm *RTM) addRoom(channel string, initialStartup bool) {
+	_, ok := rtm.rooms[channel]
 
 	if ok {
 		rtm.logger.WithField("channel", channel).Warn("attempting to add existing channel")
@@ -151,13 +173,13 @@ func (rtm *RTM) addChannel(channel string, initialStartup bool) {
 	}
 
 	rtm.logger.WithField("channel", channel).Info("adding channel")
-	c := NewChannel(rtm.config, rtm, channel, rtm.config.Logger)
-	rtm.channels[channel] = c
+	c := newRoom(rtm.config, rtm, channel, rtm.config.Logger)
+	rtm.rooms[channel] = c
 	c.sendIntro(initialStartup)
 }
 
-func (rtm *RTM) removeChannel(channel string) {
-	c, ok := rtm.channels[channel]
+func (rtm *RTM) removeRoom(channel string) {
+	c, ok := rtm.rooms[channel]
 
 	if !ok {
 		rtm.logger.WithField("channel", channel).Warn("attempting to remove non-tracked channel")
@@ -167,7 +189,7 @@ func (rtm *RTM) removeChannel(channel string) {
 
 	rtm.logger.WithField("channel", channel).Info("removing channel")
 	c.killGame()
-	delete(rtm.channels, channel)
+	delete(rtm.rooms, channel)
 }
 
 func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
@@ -189,7 +211,7 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 	// to read the logic that way.
 	text := msgEvent.Text
 	forSomeoneElse := rtm.isForSomeoneElse(text)
-	toUs := rtm.isExplicitlyToUs(text)
+	toUs := rtm.isExplicitlyToMe(text)
 	// Ensure any direct-address (to us) is stripped first...
 	command := strings.TrimPrefix(text, rtm.selfLink)
 	command = strings.TrimSpace(command)
@@ -199,7 +221,7 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 		return
 	}
 
-	c, ok := rtm.channels[msgEvent.Channel]
+	c, ok := rtm.rooms[msgEvent.Channel]
 	if !ok {
 		// Can this ever happen?
 		rtm.handleCommand(msgEvent.Channel, command)
@@ -230,14 +252,14 @@ func (rtm *RTM) isForSomeoneElse(text string) bool {
 	return false
 }
 
-func (rtm *RTM) isExplicitlyToUs(text string) bool {
+func (rtm *RTM) isExplicitlyToMe(text string) bool {
 	// TODO: handle direct messages differently?  What about low-member-count
 	// channels?  Should this be configurable?
 	return strings.HasPrefix(text, rtm.selfLink)
 }
 
 func (rtm *RTM) handleCommand(channel string, command string) {
-	reply := fmt.Sprintf("It looks like you want me to try doing `%s`... but for some reason I don’t already know about this channel!", command)
+	reply := fmt.Sprintf("It looks like you want me to try doing `%s`... but for some reason I don’t already know about this channel (%s)!", command, channel)
 	rtm.sendMessage(channel, reply)
 }
 
