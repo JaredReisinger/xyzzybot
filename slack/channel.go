@@ -13,6 +13,10 @@ import (
 	"github.com/JaredReisinger/xyzzybot/util"
 )
 
+const (
+	metaCommandPrefix = "!"
+)
+
 // Channel represents a Slack channel (or user direct-message) to which we're
 // connected.
 type Channel struct {
@@ -174,14 +178,14 @@ type commandHandler func(command string, args ...string)
 
 func (c *Channel) handleCommand(command string) {
 	// If we have an interpreter, it gets the command.  Otherwise (or if there's
-	// a leading `/`), it's a meta-command.
+	// a leading metaCommandPrefix), it's a meta-command.
 
-	if c.gameInProgress() && !strings.HasPrefix(command, "/") {
-		c.interp.SendCommand(command)
+	if c.gameInProgress() && !strings.HasPrefix(command, metaCommandPrefix) {
+		c.interp.SendLine(command)
 		return
 	}
 
-	command = strings.TrimPrefix(command, "/")
+	command = strings.TrimPrefix(command, metaCommandPrefix)
 
 	// right now, we only do super-simple command parsing...
 	words := strings.Fields(command)
@@ -191,6 +195,8 @@ func (c *Channel) handleCommand(command string) {
 		"list":   c.commandList,
 		"play":   c.commandPlay,
 		"kill":   c.commandKill,
+		"space":  c.commandSpace,
+		"key":    c.commandKey,
 	}
 
 	handler, ok := dispatch[words[0]]
@@ -202,7 +208,7 @@ func (c *Channel) handleCommand(command string) {
 }
 
 func (c *Channel) commandHelp(command string, args ...string) {
-	msg := fmt.Sprintf("Hi!  I’m %[1]s, and I exist to help you experience the world of interactive fiction.\n\nWhen there’s a game in progress, I’ll assume that any comments directed my way are actually meant for the game, and I’ll pass them along.  If you really want to reach me directly, slap a `/` at the begining, like `@%[1]s /help` to see this message again.\n\nWhen there’s _not_ a game underway, or if your `/`-prefix your message, I can help with the following:\n* `help` - this message\n* `status` - operational status about myself\n* `list` - list the available games\n* `play game-name` - start _game-name_\n* `kill` - kill an in-progress game", c.rtm.authInfo.User)
+	msg := fmt.Sprintf("Hi!  I’m %[1]s, and I exist to help you experience the world of interactive fiction.\n\nWhen there’s a game in progress, I’ll assume that any comments directed my way are actually meant for the game, and I’ll pass them along.  If you really want to reach me directly, slap a `%[2]s` at the begining, like `@%[1]s /help` to see this message again.\n\nWhen there’s _not_ a game underway, or if your `%[2]s`-prefix your message, I can help with the following:\n* `help` - this message\n* `status` - operational status about myself\n* `list` - list the available games\n* `play game-name` - start _game-name_\n* `kill` - kill an in-progress game\n* `%[2]sspace` - send a space character to the game (needed for some prompts)\n* `%[2]skey` - send a raw key to the game: `%[2]skey` sends a space, and `%[2]skey x` sends `x`", c.rtm.authInfo.User, metaCommandPrefix)
 	c.sendMessage(msg)
 }
 
@@ -264,15 +270,6 @@ func (c *Channel) commandPlay(command string, args ...string) {
 	}
 
 	c.StartGame(args[0])
-	// gameFile := path.Join(c.config.GameDirectory, args[0])
-	//
-	// i, err := interpreter.NewInterpreter(c.config, gameFile, c.logger)
-	// if err != nil {
-	// 	c.logger.WithField("path", gameFile).WithError(err).Error("unable to start interpreter")
-	// 	c.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to start the game `%s`.", args[0]))
-	// 	return
-	// }
-	// c.interp = i
 }
 
 func (c *Channel) commandKill(command string, args ...string) {
@@ -282,6 +279,29 @@ func (c *Channel) commandKill(command string, args ...string) {
 	}
 
 	c.killGame()
+}
+
+func (c *Channel) commandSpace(command string, args ...string) {
+	if !c.gameInProgress() {
+		c.sendMessage("There's _not_ currently a game in progress!")
+		return
+	}
+
+	c.interp.SendKey(" ")
+}
+
+func (c *Channel) commandKey(command string, args ...string) {
+	if !c.gameInProgress() {
+		c.sendMessage("There's _not_ currently a game in progress!")
+		return
+	}
+
+	key := " "
+	if len(args) > 0 {
+		key = args[0]
+	}
+
+	c.interp.SendKey(key)
 }
 
 func (c *Channel) commandUnknown(command string, args ...string) {

@@ -12,6 +12,7 @@ import (
 	"github.com/JaredReisinger/xyzzybot/util"
 )
 
+// RTM ...
 type RTM struct {
 	config   *util.Config
 	logger   log.FieldLogger
@@ -22,6 +23,7 @@ type RTM struct {
 	quit     chan bool
 }
 
+// StartRTM ...
 func StartRTM(config *util.Config) (rtm *RTM, err error) {
 	logger := config.Logger.WithField("component", "slack.rtm")
 
@@ -51,6 +53,7 @@ func StartRTM(config *util.Config) (rtm *RTM, err error) {
 	return
 }
 
+// Disconnect ...
 func (rtm *RTM) Disconnect() {
 	close(rtm.quit)
 }

@@ -100,7 +100,7 @@ func NewInterpreter(config *util.Config, gameFile string, logger log.FieldLogger
 func (i *Interpreter) Start() error {
 	// Kick off the out/err listeners?
 	go i.ProcessRemGlkOutput()
-	go i.ProcessInput()
+	// go i.ProcessInput()
 
 	// go i.debugInterpreterOutput()
 

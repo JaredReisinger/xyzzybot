@@ -1,12 +1,10 @@
 package interpreter
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"os"
 	"sort"
 	"strings"
 )
@@ -230,19 +228,19 @@ func (i *Interpreter) Kill() {
 	}
 }
 
-// ProcessInput ...
-func (i *Interpreter) ProcessInput() {
-	// read from stdin, and send commands...
-	r := bufio.NewReader(os.Stdin)
-	for {
-		s, err := r.ReadString("\n"[0])
-		if err != nil {
-			i.logger.WithError(err).Error("reading input")
-			return
-		}
-		i.SendCommand(s[:len(s)-1])
-	}
-}
+// // ProcessInput ...
+// func (i *Interpreter) ProcessInput() {
+// 	// read from stdin, and send commands...
+// 	r := bufio.NewReader(os.Stdin)
+// 	for {
+// 		s, err := r.ReadString("\n"[0])
+// 		if err != nil {
+// 			i.logger.WithError(err).Error("reading input")
+// 			return
+// 		}
+// 		i.SendCommand(s[:len(s)-1])
+// 	}
+// }
 
 // InputCommand ...
 type InputCommand struct {
@@ -252,20 +250,25 @@ type InputCommand struct {
 	Value  string `json:"value"`
 }
 
-// SendCommand ...
-func (i *Interpreter) SendCommand(command string) {
+// SendLine ...
+func (i *Interpreter) SendLine(command string) {
+	i.sendCommand(command, "line")
+}
+
+// SendKey ...
+func (i *Interpreter) SendKey(command string) {
+	i.sendCommand(command, "char")
+}
+
+func (i *Interpreter) sendCommand(command string, commandType string) {
 	i.logger.WithField("command", command).Info("handling command")
 
 	// We need to know the last gen and the correct window...
 	c := &InputCommand{
-		Type:   "line",
+		Type:   commandType,
 		Gen:    i.inputGen,
 		Window: i.inputWindow,
 		Value:  command,
-	}
-
-	if command == " " {
-		c.Type = "char"
 	}
 
 	b, err := json.Marshal(c)

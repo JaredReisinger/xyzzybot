@@ -43,14 +43,16 @@ ignored.
 
 If xyzzybot is addressed explicitly at the beginning of the message (`@xyzzybot
 help`), the rest of the message is either a game command, or a xyzzybot command.
-If there's not a game in progress, _or_ the first word is preceded by a slash
-(`/`), the message is treated as a xyzzybot command.  If there is a game in
-progress, and the first word is _not_ preceded by a slash, the message is passed
-to the game.
+If there's not a game in progress, _or_ the first word is preceded by an
+exclamation mark (`!`), the message is treated as a xyzzybot command.  If there
+is a game in progress, and the first word is _not_ preceded by an exclamation
+mark, the message is passed to the game.  (The meta-command prefix was
+originally a slash, but that has special meaning to Slack, and can't reliably be
+used without deeper slash-command integration.)
 
 > An implication of this is that it is _always_ possible to ensure that a
 > xyzzybot command will be understood: whether there is a game in progress or
-> not, `@xyzzybot /foo` will _**always**_ be treated as a command `foo` meant
+> not, `@xyzzybot !foo` will _**always**_ be treated as a command `foo` meant
 > for xyzzybot itself.
 
 
