@@ -1,4 +1,4 @@
-package interpreter // import "github.com/JaredReisinger/fizmo-slack/interpreter"
+package interpreter // import "github.com/JaredReisinger/xyzzybot/interpreter"
 
 import (
 	"io"
@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/fizmo-slack/util"
+	"github.com/JaredReisinger/xyzzybot/util"
 )
 
 // Interpreter represents (may be interface eventually) the command/output
@@ -62,13 +62,6 @@ const (
 func NewInterpreter(config *util.Config, gameFile string, logger log.FieldLogger) (interp *Interpreter, err error) {
 	logger = logger.WithField("component", "interpreter")
 
-	// attempt to start a subprocess for the game...
-	// exe, err := exec.LookPath("fizmo-remglk")
-	// if err != nil {
-	// 	logger.WithError(err).Error("cannot find fizmo-remglk")
-	// 	return
-	// }
-
 	cmd := exec.Command("fizmo-remglk", "-fixmetrics", "-width", "80", "-height", "50", gameFile)
 
 	inPipe, err := cmd.StdinPipe()
@@ -123,7 +116,7 @@ func (i *Interpreter) Start() error {
 		// "channel": "???",
 	})
 
-	i.logger.WithField("cmd", i.cmd).Info("running fizmo")
+	i.logger.WithField("cmd", i.cmd).Info("running interpreter")
 	return nil
 }
 

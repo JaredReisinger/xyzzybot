@@ -8,7 +8,7 @@ import (
 
 	"github.com/nlopes/slack"
 
-	"github.com/JaredReisinger/fizmo-slack/util"
+	"github.com/JaredReisinger/xyzzybot/util"
 )
 
 type RTM struct {

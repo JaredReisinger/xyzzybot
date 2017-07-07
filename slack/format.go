@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/fizmo-slack/interpreter"
+	"github.com/JaredReisinger/xyzzybot/interpreter"
 )
 
 func formatSpan(span *interpreter.GlkSpan, singleSpan bool) string {

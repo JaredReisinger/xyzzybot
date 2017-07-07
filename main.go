@@ -1,4 +1,4 @@
-package main // import "github.com/JaredReisinger/fizmo-slack"
+package main // import "github.com/JaredReisinger/xyzzybot"
 
 import (
 	"flag"
@@ -8,8 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/fizmo-slack/slack"
-	"github.com/JaredReisinger/fizmo-slack/util"
+	"github.com/JaredReisinger/xyzzybot/slack"
+	"github.com/JaredReisinger/xyzzybot/util"
 )
 
 func main() {
@@ -25,7 +25,7 @@ func main() {
 		logger.Fatalf("error parsing config file: %#v\n", err)
 	}
 
-	logger.Info("Starting fizmo-slack...")
+	logger.Info("Starting xyzzybot...")
 
 	rtm, err := slack.StartRTM(config)
 	if err != nil {

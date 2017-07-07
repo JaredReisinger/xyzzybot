@@ -9,8 +9,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/fizmo-slack/interpreter"
-	"github.com/JaredReisinger/fizmo-slack/util"
+	"github.com/JaredReisinger/xyzzybot/interpreter"
+	"github.com/JaredReisinger/xyzzybot/util"
 )
 
 // Channel represents a Slack channel (or user direct-message) to which we're
