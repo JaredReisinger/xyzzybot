@@ -85,7 +85,6 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 
 	case *slack.ChannelJoinedEvent:
 		rtm.logger.WithField("channel", t.Channel).Info("joined channel")
-		// rtm.sendIntro(t.Channel, false)
 		rtm.addChannel(t.Channel.ID, false)
 
 	case *slack.ChannelLeftEvent:
@@ -96,7 +95,6 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 
 	case *slack.GroupJoinedEvent:
 		rtm.logger.WithField("channel", t.Channel).Info("joined group (private channel)")
-		// rtm.sendIntro(t.Channel, false)
 		rtm.addChannel(t.Channel.ID, false)
 
 	case *slack.GroupLeftEvent:
@@ -149,8 +147,9 @@ func (rtm *RTM) addChannel(channel string, initialStartup bool) {
 	}
 
 	rtm.logger.WithField("channel", channel).Info("adding channel")
-	rtm.channels[channel] = NewChannel(rtm.config, channel, rtm.config.Logger)
-	rtm.sendIntro(channel, initialStartup)
+	c := NewChannel(rtm.config, rtm, channel, rtm.config.Logger)
+	rtm.channels[channel] = c
+	c.sendIntro(initialStartup)
 }
 
 func (rtm *RTM) removeChannel(channel string) {
@@ -167,29 +166,17 @@ func (rtm *RTM) removeChannel(channel string) {
 	delete(rtm.channels, channel)
 }
 
-func (rtm *RTM) sendIntro(channel string, initialStartup bool) {
-	var format string
-
-	if initialStartup {
-		format = "Hi, everyone!  I’ve been asleep for a bit, but I’m awake again.  Just as a reminder, you can address me directly to get more help: `@%s help`"
-	} else {
-		format = "Hi, everyone!  Thanks for inviting me to the channel!  You can address me directly to get more help: `@%s help`"
-	}
-
-	msg := fmt.Sprintf(format, rtm.authInfo.User)
-	rtm.sendMessage(channel, msg)
-}
-
 func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
-	rtm.logger.WithFields(log.Fields{
-		"channel":  msgEvent.Channel,
-		"user":     msgEvent.User,
-		"username": msgEvent.Username,
-		"text":     msgEvent.Text,
-	}).Debug("message")
+	// TODO: only turn on with increased verbosity?
+	// rtm.logger.WithFields(log.Fields{
+	// 	"channel":  msgEvent.Channel,
+	// 	"user":     msgEvent.User,
+	// 	"username": msgEvent.Username,
+	// 	"text":     msgEvent.Text,
+	// }).Debug("message")
 
 	if msgEvent.User == "" || msgEvent.User == rtm.authInfo.UserID {
-		rtm.logger.Debug("ignoring message from ourself...")
+		// rtm.logger.Debug("ignoring message from ourself...")
 		return
 	}
 
@@ -199,8 +186,14 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 		return
 	}
 
-	reply := fmt.Sprintf("It looks like you want me to try doing `%s`...", command)
-	rtm.sendMessage(msgEvent.Channel, reply)
+	c, ok := rtm.channels[msgEvent.Channel]
+	if !ok {
+		// Can this ever happen?
+		rtm.handleCommand(msgEvent.Channel, command)
+	} else {
+		c.handleCommand(command)
+	}
+
 }
 
 func (rtm *RTM) shouldBeCommand(text string) (string, bool) {
@@ -219,7 +212,16 @@ func (rtm *RTM) directlyAddressed(text string) (string, bool) {
 	return command, true
 }
 
+func (rtm *RTM) handleCommand(channel string, command string) {
+	reply := fmt.Sprintf("It looks like you want me to try doing `%s`... but for some reason I don’t already know about this channel!", command)
+	rtm.sendMessage(channel, reply)
+}
+
 func (rtm *RTM) sendMessage(channel string, text string) {
+	rtm.sendMessageWithStatus(channel, text, "")
+}
+
+func (rtm *RTM) sendMessageWithStatus(channel string, text string, status string) {
 	// All of the message-posting/sending APIs are gross, each in their own way.
 	// You'd think there'd just be one that took a message object and sent it,
 	// but they all take pieces and parts and cram them together.
@@ -227,6 +229,17 @@ func (rtm *RTM) sendMessage(channel string, text string) {
 	params.AsUser = false
 	params.Username = fmt.Sprintf("%s (no game)", rtm.authInfo.User)
 	params.EscapeText = false
+
+	if status != "" {
+		// We represent status window text as an attachment footer, because
+		// that's a pretty good analog for the top-of-window placement in a
+		// fixed screen.
+		params.Attachments = []slack.Attachment{
+			slack.Attachment{
+				Footer: status,
+			},
+		}
+	}
 	// params.Attachments = ...
 	_, _, err := rtm.slackRTM.PostMessage(channel, text, params)
 	if err != nil {
