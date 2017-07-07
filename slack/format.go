@@ -9,8 +9,8 @@ import (
 	"github.com/JaredReisinger/fizmo-slack/interpreter"
 )
 
-func FormatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
-	// log.WithField("span", span).Debug("FormatSpan")
+func formatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
+	// log.WithField("span", span).Debug("formatSpan")
 	formatted := ""
 	format := "%s"
 	switch span.Style {
@@ -59,8 +59,8 @@ func FormatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
 	return formatted
 }
 
-func FormatSpans(spans *interpreter.GlkSpans) string {
-	// log.WithField("spans", spans).Debug("FormatSpans")
+func formatSpans(spans *interpreter.GlkSpans) string {
+	// log.WithField("spans", spans).Debug("formatSpans")
 	if spans == nil {
 		return ""
 	}
@@ -68,46 +68,50 @@ func FormatSpans(spans *interpreter.GlkSpans) string {
 	line := make([]string, 0, len(*spans))
 	singleSpan := len(*spans) == 1
 	for _, s := range *spans {
-		line = append(line, FormatSpan(s, singleSpan))
+		line = append(line, formatSpan(s, singleSpan))
 	}
 
-	return strings.Join(line, "")
+	// Slack can't deal with consecutive-but-not-nested formatting.  For
+	// example, ` _this_*does*_not_*work* `.  We can, however, put a
+	// zero-width-joiner (\u200d) between each span, and it appears to render
+	// correctly: ` _this_\u200d*does*\u200d_work_ `
+	return strings.Join(line, "\u200d")
 }
 
-func FormatTextContent(text *interpreter.GlkTextContent) string {
-	// log.WithField("text", text).Debug("FormatTextContent")
-	return FormatSpans(text.Content)
+func formatTextContent(text *interpreter.GlkTextContent) string {
+	// log.WithField("text", text).Debug("formatTextContent")
+	return formatSpans(text.Content)
 }
 
-func FormatLine(line *interpreter.GlkLine) string {
-	// log.WithField("line", line).Debug("FormatLine")
-	return FormatSpans(line.Content)
+func formatLine(line *interpreter.GlkLine) string {
+	// log.WithField("line", line).Debug("formatLine")
+	return formatSpans(line.Content)
 }
 
-func FormatWindowContent(window *interpreter.GlkWindowContent) string {
-	// log.WithField("window", window).Debug("FormatWindowContent")
+func formatWindowContent(window *interpreter.GlkWindowContent) string {
+	// log.WithField("window", window).Debug("formatWindowContent")
 
 	// A GlkWindowContent will have *either* Lines or Text... we just let the
 	// range operator short-circuit for us when empty.
 	lines := make([]string, 0, len(window.Lines)+len(window.Text))
 	for _, l := range window.Lines {
-		lines = append(lines, FormatLine(l))
+		lines = append(lines, formatLine(l))
 	}
 
 	for _, t := range window.Text {
-		lines = append(lines, FormatTextContent(t))
+		lines = append(lines, formatTextContent(t))
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func FormatWindow(window *interpreter.GlkWindow) string {
-	// log.WithField("window", window).Debug("FormatWindow")
-	return FormatWindowContent(window.Content)
+func formatWindow(window *interpreter.GlkWindow) string {
+	// log.WithField("window", window).Debug("formatWindow")
+	return formatWindowContent(window.Content)
 }
 
-func FormatOutput(output *interpreter.GlkOutput) string {
-	// log.WithField("output", output).Debug("FormatOutput")
+func formatOutput(output *interpreter.GlkOutput) string {
+	// log.WithField("output", output).Debug("formatOutput")
 
 	// This is where we'd want to infer status windows, etc.
 
@@ -116,7 +120,7 @@ func FormatOutput(output *interpreter.GlkOutput) string {
 	lines := []string{sep1}
 
 	for _, w := range output.Windows {
-		lines = append(lines, FormatWindow(w))
+		lines = append(lines, formatWindow(w))
 		lines = append(lines, sep2)
 	}
 

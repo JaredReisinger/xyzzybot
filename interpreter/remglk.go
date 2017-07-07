@@ -125,11 +125,13 @@ func (i *Interpreter) ProcessRemGlkOutput() {
 		output := &GlkOutput{}
 		err := decoder.Decode(&output)
 		if i.killing {
-			// bail immediately if we're killing the interpreter
+			i.logger.Info("killing the interpreter")
+			close(i.Output)
 			return
 		}
 		if err == io.EOF {
 			i.logger.Info("read EOF")
+			close(i.Output)
 			return
 		} else if err != nil {
 			i.logger.WithError(err).Error("decoding JSON")
@@ -220,6 +222,9 @@ func (i *Interpreter) Kill() {
 
 	err = i.cmd.Wait()
 	if err != nil {
+		// Note... it's not at all surprising that force-killing the subprocess
+		// results in an error (any non-zero exit code).  Perhaps we shouldn't
+		// report this as an error?
 		i.logger.WithError(err).Error("waiting for completion")
 		return
 	}

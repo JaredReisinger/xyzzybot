@@ -53,7 +53,7 @@ func (c *Channel) StartGame(name string) error {
 		return err
 	}
 
-	go c.ListenForGameOutput(i.Output)
+	go c.listenForGameOutput(i.Output)
 
 	err = i.Start()
 	if err != nil {
@@ -65,99 +65,35 @@ func (c *Channel) StartGame(name string) error {
 	return nil
 }
 
-func (c *Channel) ListenForGameOutput(outchan chan *interpreter.GlkOutput) {
+func (c *Channel) listenForGameOutput(outchan chan *interpreter.GlkOutput) {
 	c.logger.Info("setting up game output handler")
 	for {
 		output := <-outchan
 		if output == nil {
 			c.logger.Warn("game output has been closed")
+			c.killGame()
 			return
 		}
 		debugOutput := c.debugFormat(output)
 		c.logger.WithField("output", debugOutput).Debug("recieved output")
 
-		// message := c.createMessage(output)
-		// b, err := json.Marshal(message)
-		// if err != nil {
-		// 	c.logger.WithError(err).Error("encoding JSON")
-		// 	return
-		// }
-		// c.logger.Debugf("FOR SLACK:\n%s", string(b))
 		c.sendOutputMessage(output)
 	}
 }
-
-// // Message is a Slack message
-// type Message struct {
-// 	Username    string        `json:"username,omitempty"`
-// 	Channel     string        `json:"channel,omitempty"`
-// 	Text        string        `json:"text"`
-// 	Attachments []*Attachment `json:"attachments"`
-// }
-//
-// type Attachment struct {
-// 	Fields []*Field `json:"fields"` // don't omit on empty... to force footer
-// 	Footer string   `json:"footer"`
-// }
-//
-// type Field struct {
-// }
-//
-// func (c *Channel) createMessage(output *interpreter.GlkOutput) *Message {
-// 	message := &Message{
-// 		// Channel: c.Name,
-// 		Username: "fizmobot",
-// 	}
-//
-// 	lines := []string{}
-//
-// 	for _, w := range output.Windows {
-// 		windowText := FormatWindow(w)
-//
-// 		// If the window looks like a status window, make its text into a footer
-// 		// instead of part of the body.
-// 		if inferStatusWindow(w) {
-// 			message.Attachments = []*Attachment{
-// 				&Attachment{
-// 					Footer: windowText,
-// 				},
-// 			}
-// 		} else {
-// 			lines = append(lines, FormatWindow(w))
-// 		}
-// 	}
-//
-// 	text := strings.Join(lines, "\n")
-// 	leader := ""
-//
-// 	// horribly gross special handling to make Slack pay attention to leading
-// 	// whitespace:
-// 	if len(text) > 0 {
-// 		if text[0] == '\n' {
-// 			leader = "."
-// 		} else if text[0] == ' ' {
-// 			leader = ".\n"
-// 		}
-// 	}
-//
-// 	message.Text = fmt.Sprintf("%s%s", leader, text)
-//
-// 	return message
-// }
 
 func (c *Channel) sendOutputMessage(output *interpreter.GlkOutput) {
 	lines := []string{}
 	status := ""
 
 	for _, w := range output.Windows {
-		windowText := FormatWindow(w)
+		windowText := formatWindow(w)
 
 		// If the window looks like a status window, save its text separately as
 		// status.
 		if inferStatusWindow(w) {
 			status = windowText
 		} else {
-			lines = append(lines, FormatWindow(w))
+			lines = append(lines, formatWindow(w))
 		}
 	}
 
@@ -175,7 +111,7 @@ func (c *Channel) sendOutputMessage(output *interpreter.GlkOutput) {
 	}
 
 	msg := fmt.Sprintf("%s%s", leader, text)
-	c.sendMessageWithStatus(msg, status)
+	c.sendMessageWithNameContext(msg, status, "game output")
 }
 
 func inferStatusWindow(w *interpreter.GlkWindow) bool {
@@ -190,7 +126,7 @@ func (c *Channel) debugFormat(output *interpreter.GlkOutput) string {
 	lines := []string{sep1}
 
 	for _, w := range output.Windows {
-		lines = append(lines, FormatWindow(w))
+		lines = append(lines, formatWindow(w))
 		lines = append(lines, sep2)
 	}
 
@@ -199,11 +135,13 @@ func (c *Channel) debugFormat(output *interpreter.GlkOutput) string {
 	return strings.Join(lines, "\n")
 }
 
-func (c *Channel) Kill() {
-	c.logger.Info("recieved kill request")
-	// TODO: stop listening to random stuff?
-	if c.gameInProgress() {
+func (c *Channel) killGame() {
+	c.logger.Info("recieved killGame request")
+
+	if c.interp != nil {
+		// TODO: stop listening to random stuff?
 		c.interp.Kill()
+		c.interp = nil
 	}
 }
 
@@ -224,8 +162,12 @@ func (c *Channel) sendMessage(text string) {
 	c.rtm.sendMessage(c.ID, text)
 }
 
-func (c *Channel) sendMessageWithStatus(text string, status string) {
-	c.rtm.sendMessageWithStatus(c.ID, text, status)
+// func (c *Channel) sendMessageWithStatus(text string, status string) {
+// 	c.rtm.sendMessageWithStatus(c.ID, text, status)
+// }
+
+func (c *Channel) sendMessageWithNameContext(text string, status string, nameContext string) {
+	c.rtm.sendMessageWithNameContext(c.ID, text, status, nameContext)
 }
 
 type commandHandler func(command string, args ...string)
@@ -339,7 +281,7 @@ func (c *Channel) commandKill(command string, args ...string) {
 		return
 	}
 
-	c.Kill()
+	c.killGame()
 }
 
 func (c *Channel) commandUnknown(command string, args ...string) {

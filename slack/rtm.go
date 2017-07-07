@@ -162,7 +162,7 @@ func (rtm *RTM) removeChannel(channel string) {
 	}
 
 	rtm.logger.WithField("channel", channel).Info("removing channel")
-	c.Kill()
+	c.killGame()
 	delete(rtm.channels, channel)
 }
 
@@ -222,12 +222,19 @@ func (rtm *RTM) sendMessage(channel string, text string) {
 }
 
 func (rtm *RTM) sendMessageWithStatus(channel string, text string, status string) {
+	rtm.sendMessageWithNameContext(channel, text, status, "")
+}
+
+func (rtm *RTM) sendMessageWithNameContext(channel string, text string, status string, nameContext string) {
 	// All of the message-posting/sending APIs are gross, each in their own way.
 	// You'd think there'd just be one that took a message object and sent it,
 	// but they all take pieces and parts and cram them together.
 	params := slack.NewPostMessageParameters()
 	params.AsUser = false
-	params.Username = fmt.Sprintf("%s (no game)", rtm.authInfo.User)
+	if nameContext != "" {
+		nameContext = fmt.Sprintf(" (%s)", nameContext)
+	}
+	params.Username = fmt.Sprintf("%s%s", rtm.authInfo.User, nameContext)
 	params.EscapeText = false
 
 	if status != "" {
