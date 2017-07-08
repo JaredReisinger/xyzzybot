@@ -14,11 +14,12 @@ type Config struct {
 	GameDirectory string
 
 	Slack struct {
-		ClientID                string
-		ClientSecret            string
-		VerificationToken       string
-		OAuthAccessToken        string
+		// ClientID             string
+		// ClientSecret         string
+		// VerificationToken    string
+		// OAuthAccessToken     string
 		BotUserOAuthAccessToken string
+		Admins                  []string
 	}
 
 	Logger log.FieldLogger `json:"-"`

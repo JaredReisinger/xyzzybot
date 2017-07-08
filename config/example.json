@@ -1,10 +1,10 @@
 {
     "gameDirectory": "/usr/local/games",
     "slack": {
-        "clientId": "1234567890.123456789012",
-        "clientSecret": "1234567890abcdef1234567890abcdef",
-        "verificationToken": "123456789012345678901234",
-        "oauthAccessToken": "xoxp-1234567890-1234567890-1234567890ab-12345678901234567890123456789012",
+        "##clientId": "1234567890.123456789012",
+        "##clientSecret": "1234567890abcdef1234567890abcdef",
+        "##verificationToken": "123456789012345678901234",
+        "##oauthAccessToken": "xoxp-1234567890-1234567890-1234567890ab-12345678901234567890123456789012",
 		"botUserOAuthAccessToken": "xoxb-1234567890ab-123456789012345678901234"
     }
 }
