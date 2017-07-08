@@ -61,6 +61,25 @@ func (rtm *RTM) Disconnect() {
 	close(rtm.quit)
 }
 
+func (rtm *RTM) getActiveRoomLinks() (typeNames map[roomType][]string) {
+	typeNames = make(map[roomType][]string, 0)
+	for _, r := range rtm.rooms {
+		typeNames[r.roomType] = append(typeNames[r.roomType], r.link)
+	}
+
+	// Really, we want to be able to sort by display string (a.k.a r.name), but
+	// that's currently lost when we aggregate the links.  We could either
+	// custom-sort by the string *after* the `|`, or track both the link and the
+	// name in the map.
+
+	// TODO: fix sorting...
+	// for _, names := range typeNames {
+	// 	sort.Sort(sort.StringSlice(names))
+	// }
+
+	return
+}
+
 func (rtm *RTM) handleEvents() {
 	defer rtm.slackRTM.Disconnect()
 
@@ -79,6 +98,18 @@ func (rtm *RTM) handleEvents() {
 
 }
 
+func createChannelLink(c *slack.Channel) string {
+	return fmt.Sprintf("<#%s|%s>", c.ID, c.Name)
+}
+
+func createGroupLink(g *slack.Group) string {
+	return fmt.Sprintf("<#%s|%s>", g.ID, g.Name)
+}
+
+func createUserLink(u *slack.User) string {
+	return fmt.Sprintf("<@%s|%s>", u.ID, u.Name)
+}
+
 func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 	// rtm.logger.WithFields(log.Fields{
 	// 	"eventName": rtmEvent.Type,
@@ -92,7 +123,7 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 
 	case *slack.ChannelJoinedEvent:
 		rtm.logger.WithField("channel", t.Channel).Info("joined channel")
-		rtm.addRoom(t.Channel.ID, false)
+		rtm.addRoom(t.Channel.ID, channelRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
 
 	case *slack.ChannelLeftEvent:
 		rtm.logger.WithFields(log.Fields{
@@ -100,15 +131,29 @@ func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
 			"user":    t.User,
 		}).Info("left channel")
 
+	case *slack.ChannelRenameEvent:
+		// rtm.logger.WithFields(log.Fields{
+		// 	"id":   t.Channel.ID,
+		// 	"name": t.Channel.Name,
+		// }).Info("rename channel")
+		rtm.renameRoom(t.Channel.ID, t.Channel.Name)
+
 	case *slack.GroupJoinedEvent:
 		rtm.logger.WithField("channel", t.Channel).Info("joined group (private channel)")
-		rtm.addRoom(t.Channel.ID, false)
+		rtm.addRoom(t.Channel.ID, groupRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
 
 	case *slack.GroupLeftEvent:
 		rtm.logger.WithFields(log.Fields{
 			"channel": t.Channel,
 			"user":    t.User,
 		}).Info("left group (private channel)")
+
+	case *slack.GroupRenameEvent:
+		// rtm.logger.WithFields(log.Fields{
+		// 	"id":   t.Channel.ID,
+		// 	"name": t.Channel.Name,
+		// }).Info("rename channel")
+		rtm.renameRoom(t.Group.ID, t.Group.Name)
 
 	case *slack.MessageEvent:
 		rtm.handleMessageEvent(t)
@@ -140,7 +185,7 @@ func (rtm *RTM) handleConnectedEvent(connEvent *slack.ConnectedEvent) {
 				"channel": c.Name,
 				// "open":    c.IsOpen,
 			}).Debug("adding channel")
-			rtm.addRoom(c.ID, true)
+			rtm.addRoom(c.ID, channelRoom, c.Name, createChannelLink(&c), true)
 		}
 	}
 
@@ -151,35 +196,58 @@ func (rtm *RTM) handleConnectedEvent(connEvent *slack.ConnectedEvent) {
 			"group": g.Name,
 			// "open":  g.IsOpen,
 		}).Debug("adding group (private channel)")
-		rtm.addRoom(g.ID, true)
+		rtm.addRoom(g.ID, groupRoom, g.Name, createGroupLink(&g), true)
 	}
 
 	for _, d := range info.IMs {
+		user, err := rtm.slackRTM.GetUserInfo(d.User)
+		if err != nil {
+			rtm.logger.WithField("id", d.User).WithError(err).Error("getting user")
+			continue
+		}
 		rtm.logger.WithFields(log.Fields{
 			"id": d.ID,
 			// "open": d.IsOpen,
 			"user": d.User,
+			"name": user.Name,
+			"bot":  user.IsBot,
 		}).Debug("direct message (im) info")
+		if d.User != "USLACKBOT" {
+			rtm.addRoom(d.ID, directRoom, user.Name, createUserLink(user), true)
+		}
 	}
 }
 
-func (rtm *RTM) addRoom(channel string, initialStartup bool) {
-	_, ok := rtm.rooms[channel]
+func (rtm *RTM) addRoom(id string, roomType roomType, name string, link string, initialStartup bool) {
+	_, ok := rtm.rooms[id]
 
 	if ok {
-		rtm.logger.WithField("channel", channel).Warn("attempting to add existing channel")
+		rtm.logger.WithField("id", id).Warn("attempting to add existing room")
 		// REVIEW: post a message in this case?
 		return
 	}
 
-	rtm.logger.WithField("channel", channel).Info("adding channel")
-	c := newRoom(rtm.config, rtm, channel, rtm.config.Logger)
-	rtm.rooms[channel] = c
-	c.sendIntro(initialStartup)
+	rtm.logger.WithField("id", id).Info("adding room")
+	r := newRoom(rtm.config, rtm, id, roomType, name, link, rtm.config.Logger)
+	rtm.rooms[id] = r
+	r.sendIntro(initialStartup)
+}
+
+func (rtm *RTM) renameRoom(id string, name string) {
+	r, ok := rtm.rooms[id]
+
+	if !ok {
+		return
+	}
+	rtm.logger.WithFields(log.Fields{
+		"id":   id,
+		"name": name,
+	}).Info("renaming room")
+	r.name = name
 }
 
 func (rtm *RTM) removeRoom(channel string) {
-	c, ok := rtm.rooms[channel]
+	r, ok := rtm.rooms[channel]
 
 	if !ok {
 		rtm.logger.WithField("channel", channel).Warn("attempting to remove non-tracked channel")
@@ -188,7 +256,7 @@ func (rtm *RTM) removeRoom(channel string) {
 	}
 
 	rtm.logger.WithField("channel", channel).Info("removing channel")
-	c.killGame()
+	r.killGame()
 	delete(rtm.rooms, channel)
 }
 
@@ -221,12 +289,12 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 		return
 	}
 
-	c, ok := rtm.rooms[msgEvent.Channel]
+	r, ok := rtm.rooms[msgEvent.Channel]
 	if !ok {
 		// Can this ever happen?
-		rtm.handleCommand(msgEvent.Channel, command)
+		rtm.handleCommand(msgEvent.User, msgEvent.Channel, command)
 	} else {
-		c.handleCommand(command)
+		r.handleCommand(msgEvent.User, command)
 	}
 }
 
@@ -258,7 +326,7 @@ func (rtm *RTM) isExplicitlyToMe(text string) bool {
 	return strings.HasPrefix(text, rtm.selfLink)
 }
 
-func (rtm *RTM) handleCommand(channel string, command string) {
+func (rtm *RTM) handleCommand(userID string, channel string, command string) {
 	reply := fmt.Sprintf("It looks like you want me to try doing `%s`... but for some reason I don’t already know about this channel (%s)!", command, channel)
 	rtm.sendMessage(channel, reply)
 }

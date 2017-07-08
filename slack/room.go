@@ -28,24 +28,39 @@ const (
 // To aid in comprehension, we instead use an analog for "communications
 // channel"... and keeping in theme with interactive fiction, it's "room".
 
+type roomType int
+
+const (
+	channelRoom roomType = iota
+	groupRoom
+	directRoom
+)
+
 // Room represents a Slack channel (public, or private (group), or user
 // direct-message) to which we're connected.
 type Room struct {
-	ID     string
-	config *util.Config
-	rtm    *RTM
-	interp *interpreter.Interpreter
-	logger log.FieldLogger
+	ID       string
+	roomType roomType
+	name     string
+	link     string // formatted `<#C1234|foo>` or `<@U1234|bob>` link
+	config   *util.Config
+	rtm      *RTM
+	interp   *interpreter.Interpreter
+	logger   log.FieldLogger
 }
 
-func newRoom(config *util.Config, rtm *RTM, id string, logger log.FieldLogger) *Room {
+func newRoom(config *util.Config, rtm *RTM, id string, roomType roomType, name string, link string, logger log.FieldLogger) *Room {
 	return &Room{
-		ID:     id,
-		config: config,
-		rtm:    rtm,
+		ID:       id,
+		roomType: roomType,
+		name:     name,
+		link:     link,
+		config:   config,
+		rtm:      rtm,
 		logger: logger.WithFields(log.Fields{
 			"component": "slack",
-			"channel":   id,
+			"room":      name,
+			"roomID":    id,
 		}),
 	}
 }
@@ -162,13 +177,15 @@ func (r *Room) sendIntro(initialStartup bool) {
 	var format string
 
 	if initialStartup {
-		format = "Hi, everyone!  I’ve been asleep for a bit, but I’m awake again.  Just as a reminder, you can address me directly to get more help: `@%s help`"
+		// format = "Hi, everyone!  I’ve been asleep for a bit, but I’m awake again.  Just as a reminder, you can address me directly to get more help: `@%s help`"
 	} else {
 		format = "Hi, everyone!  Thanks for inviting me!  You can address me directly to get more help: `@%s help`"
 	}
 
-	msg := fmt.Sprintf(format, r.rtm.authInfo.User)
-	r.sendMessage(msg)
+	if format != "" {
+		msg := fmt.Sprintf(format, r.rtm.authInfo.User)
+		r.sendMessage(msg)
+	}
 }
 
 func (r *Room) sendMessage(text string) {
@@ -183,9 +200,9 @@ func (r *Room) sendMessageWithNameContext(text string, status string, nameContex
 	r.rtm.sendMessageWithNameContext(r.ID, text, status, nameContext)
 }
 
-type commandHandler func(command string, args ...string)
+type commandHandler func(userID string, command string, args ...string)
 
-func (r *Room) handleCommand(command string) {
+func (r *Room) handleCommand(userID string, command string) {
 	// If we have an interpreter, it gets the command.  Otherwise (or if there's
 	// a leading metaCommandPrefix), it's a meta-command.
 
@@ -213,15 +230,26 @@ func (r *Room) handleCommand(command string) {
 		handler = r.commandUnknown
 	}
 
-	handler(words[0], words[1:]...)
+	handler(userID, words[0], words[1:]...)
 }
 
-func (r *Room) commandHelp(command string, args ...string) {
+func (r *Room) commandHelp(userID string, command string, args ...string) {
 	msg := fmt.Sprintf("Hi!  I’m %[1]s, and I exist to help you experience the world of interactive fiction.\n\nWhen there’s a game in progress, I’ll assume that any comments directed my way are actually meant for the game, and I’ll pass them along.  If you really want to reach me directly, slap a `%[2]s` at the begining, like `@%[1]s /help` to see this message again.\n\nWhen there’s _not_ a game underway, or if your `%[2]s`-prefix your message, I can help with the following:\n* `help` - this message\n* `status` - operational status about myself\n* `list` - list the available games\n* `play game-name` - start _game-name_\n* `kill` - kill an in-progress game\n* `%[2]sspace` - send a space character to the game (needed for some prompts)\n* `%[2]skey` - send a raw key to the game: `%[2]skey` sends a space, and `%[2]skey x` sends `x`", r.rtm.authInfo.User, metaCommandPrefix)
 	r.sendMessage(msg)
 }
 
-func (r *Room) commandStatus(command string, args ...string) {
+func (r *Room) commandStatus(userID string, command string, args ...string) {
+	admin := false
+	user, err := r.rtm.slackRTM.GetUserInfo(userID)
+	if err == nil {
+		for _, a := range r.config.Slack.Admins {
+			if strings.EqualFold(user.Name, a) {
+				admin = true
+				break
+			}
+		}
+	}
+
 	var inProgress string
 	if r.gameInProgress() {
 		inProgress = "There *is* currently a game in progress."
@@ -229,17 +257,46 @@ func (r *Room) commandStatus(command string, args ...string) {
 		inProgress = "There *is not* currently a game in progress."
 	}
 
-	// TODO: better feedback here!, also move logic to rtm where it belongs
-	roomIds := make([]string, 0, len(r.rtm.rooms))
-	for k := range r.rtm.rooms {
-		roomIds = append(roomIds, k)
+	typeLinks := r.rtm.getActiveRoomLinks()
+
+	channelList := formatRoomList(typeLinks[channelRoom], "channel")
+	var roomList string
+	if r.roomType == directRoom && admin {
+		roomList = fmt.Sprintf("I am participating in %s; %s; and chatting with %s", channelList, formatRoomList(typeLinks[groupRoom], "group"), formatRoomList(typeLinks[directRoom], "user"))
+
+	} else {
+		privateCount := len(typeLinks[groupRoom]) + len(typeLinks[directRoom])
+		privates := ""
+		if privateCount > 0 {
+			privates = fmt.Sprintf("in %d private conversations, and ", privateCount)
+		}
+		roomList = fmt.Sprintf("I am %sparticipating in %s.", privates, channelList)
 	}
 
-	msg := fmt.Sprintf("I am participating in the following channels: %s\n%s", strings.Join(roomIds, ", "), inProgress)
+	msg := fmt.Sprintf("%s\n\n%s", roomList, inProgress)
+
+	r.logger.WithField("status", msg).Debug("sending status")
 	r.sendMessage(msg)
 }
 
-func (r *Room) commandList(command string, args ...string) {
+func formatRoomList(list []string, label string) string {
+	switch len(list) {
+	case 0:
+		return fmt.Sprintf("_no %ss_", label)
+
+	case 1:
+		return fmt.Sprintf("%s %s", label, list[0])
+
+	case 2:
+		return fmt.Sprintf("%ss %s and %s", label, list[0], list[1])
+	}
+
+	most := list[0 : len(list)-2]
+	last := list[len(list)-1]
+	return fmt.Sprintf("%ss %s, and %s", label, strings.Join(most, ", "), last)
+}
+
+func (r *Room) commandList(userID string, command string, args ...string) {
 	dir, err := os.Open(r.config.GameDirectory)
 	if err != nil {
 		r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
@@ -272,7 +329,7 @@ func (r *Room) commandList(command string, args ...string) {
 	r.sendMessage(msg)
 }
 
-func (r *Room) commandPlay(command string, args ...string) {
+func (r *Room) commandPlay(userID string, command string, args ...string) {
 	if r.gameInProgress() {
 		r.sendMessage("_There's currently a game in progress; you’ll need to finish or `/kill` it before you can start a new game._")
 		return
@@ -281,7 +338,7 @@ func (r *Room) commandPlay(command string, args ...string) {
 	r.startGame(args[0])
 }
 
-func (r *Room) commandKill(command string, args ...string) {
+func (r *Room) commandKill(userID string, command string, args ...string) {
 	if !r.gameInProgress() {
 		r.sendMessage("There's _not_ currently a game in progress!")
 		return
@@ -290,7 +347,7 @@ func (r *Room) commandKill(command string, args ...string) {
 	r.killGame()
 }
 
-func (r *Room) commandSpace(command string, args ...string) {
+func (r *Room) commandSpace(userID string, command string, args ...string) {
 	if !r.gameInProgress() {
 		r.sendMessage("There's _not_ currently a game in progress!")
 		return
@@ -299,7 +356,7 @@ func (r *Room) commandSpace(command string, args ...string) {
 	r.interp.SendKey(" ")
 }
 
-func (r *Room) commandKey(command string, args ...string) {
+func (r *Room) commandKey(userID string, command string, args ...string) {
 	if !r.gameInProgress() {
 		r.sendMessage("There's _not_ currently a game in progress!")
 		return
@@ -313,7 +370,7 @@ func (r *Room) commandKey(command string, args ...string) {
 	r.interp.SendKey(key)
 }
 
-func (r *Room) commandUnknown(command string, args ...string) {
+func (r *Room) commandUnknown(userID string, command string, args ...string) {
 	r.logger.WithField("command", command).Debug("unknown command")
 	r.sendMessage(fmt.Sprintf("I’m sorry, I don’t know how to `%s`.", command))
 }
