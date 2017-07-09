@@ -292,9 +292,9 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 	r, ok := rtm.rooms[msgEvent.Channel]
 	if !ok {
 		// Can this ever happen?
-		rtm.handleCommand(msgEvent.User, msgEvent.Channel, command)
+		rtm.handleCommand(msgEvent, msgEvent.Channel, command)
 	} else {
-		r.handleCommand(msgEvent.User, command)
+		r.handleCommand(msgEvent, command)
 	}
 }
 
@@ -326,7 +326,7 @@ func (rtm *RTM) isExplicitlyToMe(text string) bool {
 	return strings.HasPrefix(text, rtm.selfLink)
 }
 
-func (rtm *RTM) handleCommand(userID string, channel string, command string) {
+func (rtm *RTM) handleCommand(msgEvent *slack.MessageEvent, channel string, command string) {
 	reply := fmt.Sprintf("It looks like you want me to try doing `%s`... but for some reason I don’t already know about this channel (%s)!", command, channel)
 	rtm.sendMessage(channel, reply)
 }
