@@ -1,6 +1,8 @@
 # Use golang to build the bot binary, and then add it to the fizmo-remglk
 # image to get the complete set of tools.
-FROM golang:alpine AS build
+# Docker Hub doesn't seem to support the "AS build" syntax!
+# FROM golang:alpine AS build
+FROM golang:alpine
 
 # Instead of /go/src/app, which is typical for golang and the go-wrapper helper,
 # we go straight to the proper path for this tool.  By doing this we avoid
@@ -28,4 +30,7 @@ RUN set -eux; \
 
 FROM jaredreisinger/fizmo-remglk
 
-COPY --from=build /go/src/github.com/JaredReisinger/xyzzybot/xyzzybot /usr/local/bin/.
+# Docker Hub doesn't seem to support the "AS build" syntax, so we have to use
+# a numerical reference...
+# COPY --from=build /go/src/github.com/JaredReisinger/xyzzybot/xyzzybot /usr/local/bin/.
+COPY --from=0 /go/src/github.com/JaredReisinger/xyzzybot/xyzzybot /usr/local/bin/.
