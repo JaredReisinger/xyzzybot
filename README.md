@@ -1,4 +1,4 @@
-# ![](docs/logo-60.png) xyzzybot
+# ![](https://github.com/JaredReisinger/xyzzybot/raw/master/docs/logo-60.png) xyzzybot
 
 Before 8-bit, there was 7-bit...
 
@@ -96,11 +96,11 @@ may shift:
 
 * [x] proxy input/output between Slack and interpreter
 
-* [ ] improve `status` command (requires tracking better information per-channel)
+* [x] improve `status` command (requires tracking better information per-channel)
 
 * [ ] handle persistence across restarts (save/restore in-progress games)
 
-* [ ] create Docker image for easier deployment
+* [x] create Docker image for easier deployment
 
 * [ ] allow for on-the-fly configuration changes (and persist them)
 
