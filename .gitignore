@@ -1,5 +1,6 @@
 xyzzybot
 config/development.json
+config/container.json
 config/staging.json
 config/production.json
 

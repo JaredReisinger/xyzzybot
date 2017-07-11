@@ -1,4 +1,4 @@
-package interpreter
+package interpreter // import "github.com/JaredReisinger/xyzzybot/interpreter"
 
 import (
 	"encoding/json"
@@ -16,12 +16,12 @@ type GlkOutput struct {
 }
 
 // GlkOutputType ...
-//go:generate stringer -type=GlkOutputType
 type GlkOutputType int
+
+//go:generate stringer -type=GlkOutputType
 
 // It's hard to tell, but I believe the only output types are "update" and
 // "error".
-//go:generate stringer -type=GlkOutputType
 const (
 	UpdateOutputType GlkOutputType = iota
 	ErrorOutputType
@@ -54,9 +54,10 @@ func (enum *GlkOutputType) UnmarshalJSON(data []byte) error {
 // relatively few lines is likely a status window.
 type GlkWindowType int
 
+//go:generate stringer -type=GlkWindowType
+
 // These types happen to align in value with the wintype_* values listed in
 // glk.h
-//go:generate stringer -type=GlkWindowType
 const (
 	_ GlkWindowType = iota // AllWindowTypes
 	PairWindowType
