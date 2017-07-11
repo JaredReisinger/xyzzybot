@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := build
 
-IMAGE_NAME := xyzzybot
+IMAGE_NAME := jaredreisinger/xyzzybot
 IMAGE_VERSION := 0.1
 
 build: build-dependencies generate
