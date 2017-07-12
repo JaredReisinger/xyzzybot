@@ -22,7 +22,8 @@ type Config struct {
 func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config, err error) {
 
 	if len(configFile) == 0 {
-		// err = errors.New("configFile must be non-zero string, perhaps -config is missing?")
+		// return an empty config, rather than nil!
+		config = &Config{}
 		return
 	}
 
@@ -36,8 +37,11 @@ func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config,
 		return
 	}
 
-	// config = &Config{}
 	err = json.Unmarshal(byts, &config)
+	if err != nil {
+		return
+	}
+
 	return
 }
 
