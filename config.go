@@ -1,4 +1,4 @@
-package util
+package main
 
 import (
 	"encoding/json"
@@ -12,27 +12,14 @@ import (
 // service.
 type Config struct {
 	GameDirectory string
-
-	Slack struct {
-		// ClientID             string
-		// ClientSecret         string
-		// VerificationToken    string
-		// OAuthAccessToken     string
-		BotUserOAuthAccessToken string
-		BotTokenFile            string
-		Admins                  []string
-	}
-
-	Logger log.FieldLogger `json:"-"`
+	BotToken      string
+	BotTokenFile  string
+	Admins        []string
 }
 
 // ParseConfigFile attempts to load a Config struct, using the data in a JSON
 // file.
 func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config, err error) {
-	config = &Config{
-		// GameDirectory: "(NONE)",
-		Logger: logger,
-	}
 
 	if len(configFile) == 0 {
 		// err = errors.New("configFile must be non-zero string, perhaps -config is missing?")
@@ -49,6 +36,7 @@ func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config,
 		return
 	}
 
+	// config = &Config{}
 	err = json.Unmarshal(byts, &config)
 	return
 }

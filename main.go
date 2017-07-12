@@ -11,7 +11,6 @@ import (
 	"github.com/JaredReisinger/xyzzybot/games"
 	"github.com/JaredReisinger/xyzzybot/glk"
 	"github.com/JaredReisinger/xyzzybot/slack"
-	"github.com/JaredReisinger/xyzzybot/util"
 )
 
 func main() {
@@ -19,10 +18,10 @@ func main() {
 	logBase.Level = log.DebugLevel
 	logger := logBase.WithField("component", "main")
 
-	configParam := util.AddConfigFlag()
+	configParam := AddConfigFlag()
 	flag.Parse()
 
-	config, err := util.ParseConfigFile(*configParam, logBase)
+	config, err := ParseConfigFile(*configParam, logBase)
 	if err != nil {
 		logger.Fatalf("error parsing config file: %#v\n", err)
 	}
@@ -38,8 +37,8 @@ func main() {
 	}
 
 	botConfig := &slack.Config{
-		BotToken:           config.Slack.BotUserOAuthAccessToken,
-		Admins:             config.Slack.Admins,
+		BotToken:           config.BotToken,
+		Admins:             config.Admins,
 		Logger:             logBase,
 		Games:              gamesFS,
 		InterpreterFactory: terpFactory,
