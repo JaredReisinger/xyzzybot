@@ -19,6 +19,7 @@ type Config struct {
 		// VerificationToken    string
 		// OAuthAccessToken     string
 		BotUserOAuthAccessToken string
+		BotTokenFile            string
 		Admins                  []string
 	}
 

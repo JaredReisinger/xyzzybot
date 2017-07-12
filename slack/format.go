@@ -6,19 +6,19 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/xyzzybot/interpreter"
+	"github.com/JaredReisinger/xyzzybot/glk"
 )
 
-func formatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
+func formatSpan(span *glk.Span, singleSpan bool) string {
 	// log.WithField("span", span).Debug("formatSpan")
 	formatted := ""
 	format := "%s"
 	switch span.Style {
-	case interpreter.NormalSpanStyle:
+	case glk.NormalSpan:
 		format = "%s"
-	case interpreter.EmphasizedSpanStyle:
+	case glk.EmphasizedSpan:
 		format = "_%s_"
-	case interpreter.PreformattedSpanStyle:
+	case glk.PreformattedSpan:
 		format = "`%s`"
 		// If there's leading whitespace, and this is a single span, we
 		// probably want to make the leading (and any trailing) whitepace *not*
@@ -28,25 +28,25 @@ func formatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
 			mid := strings.TrimLeft(span.Text, " ")
 			formatted = fmt.Sprintf("%s`%s`", strings.Repeat(" ", len(span.Text)-len(mid)), mid)
 		}
-	case interpreter.HeaderSpanStyle:
+	case glk.HeaderSpan:
 		format = "*%s*"
-	case interpreter.SubheaderSpanStyle:
+	case glk.SubheaderSpan:
 		format = "*%s*"
-	case interpreter.AlertSpanStyle:
+	case glk.AlertSpan:
 		format = "[alert: %s]"
-	case interpreter.NoteSpanStyle:
+	case glk.NoteSpan:
 		format = "[note: %s]"
-	case interpreter.BlockQuoteSpanStyle:
+	case glk.BlockQuoteSpan:
 		format = "> %s"
-	case interpreter.InputSpanStyle:
+	case glk.InputSpan:
 		if singleSpan {
 			format = "_command: *%q*_\n"
 		} else {
 			format = "_command: *%q*_"
 		}
-	case interpreter.User1SpanStyle:
+	case glk.User1Span:
 		format = "%s"
-	case interpreter.User2SpanStyle:
+	case glk.User2Span:
 		format = "%s"
 	default:
 		log.WithField("style", span.Style).Warn("unknown style")
@@ -59,7 +59,7 @@ func formatSpan(span *interpreter.GlkSpan, singleSpan bool) string {
 	return formatted
 }
 
-func formatSpans(spans *interpreter.GlkSpans) string {
+func formatSpans(spans *glk.Spans) string {
 	// log.WithField("spans", spans).Debug("formatSpans")
 	if spans == nil {
 		return ""
@@ -78,20 +78,20 @@ func formatSpans(spans *interpreter.GlkSpans) string {
 	return strings.Join(line, "\u200d")
 }
 
-func formatTextContent(text *interpreter.GlkTextContent) string {
+func formatTextContent(text *glk.TextContent) string {
 	// log.WithField("text", text).Debug("formatTextContent")
 	return formatSpans(text.Content)
 }
 
-func formatLine(line *interpreter.GlkLine) string {
+func formatLine(line *glk.Line) string {
 	// log.WithField("line", line).Debug("formatLine")
 	return formatSpans(line.Content)
 }
 
-func formatWindowContent(window *interpreter.GlkWindowContent) string {
+func formatWindowContent(window *glk.WindowContent) string {
 	// log.WithField("window", window).Debug("formatWindowContent")
 
-	// A GlkWindowContent will have *either* Lines or Text... we just let the
+	// A WindowContent will have *either* Lines or Text... we just let the
 	// range operator short-circuit for us when empty.
 	lines := make([]string, 0, len(window.Lines)+len(window.Text))
 	for _, l := range window.Lines {
@@ -105,12 +105,12 @@ func formatWindowContent(window *interpreter.GlkWindowContent) string {
 	return strings.Join(lines, "\n")
 }
 
-func formatWindow(window *interpreter.GlkWindow) string {
+func formatWindow(window *glk.Window) string {
 	// log.WithField("window", window).Debug("formatWindow")
 	return formatWindowContent(window.Content)
 }
 
-func formatOutput(output *interpreter.GlkOutput) string {
+func formatOutput(output *glk.Output) string {
 	// log.WithField("output", output).Debug("formatOutput")
 
 	// This is where we'd want to infer status windows, etc.

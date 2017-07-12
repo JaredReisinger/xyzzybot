@@ -5,16 +5,26 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/nlopes/slack"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/nlopes/slack"
-
-	"github.com/JaredReisinger/xyzzybot/util"
+	"github.com/JaredReisinger/xyzzybot/games"
+	"github.com/JaredReisinger/xyzzybot/glk"
 )
+
+// Config for Slack components...
+type Config struct {
+	BotToken           string
+	Admins             []string
+	Logger             log.FieldLogger
+	Games              games.Repository
+	InterpreterFactory glk.InterpreterFactory
+}
 
 // RTM ...
 type RTM struct {
-	config   *util.Config
+	// config   *util.Config
+	config   *Config
 	logger   log.FieldLogger
 	slackRTM *slack.RTM
 	authInfo slack.AuthTestResponse
@@ -27,14 +37,14 @@ type RTM struct {
 type roomMap map[string]*Room
 
 // StartRTM ...
-func StartRTM(config *util.Config) (rtm *RTM, err error) {
+func StartRTM(config *Config) (rtm *RTM, err error) {
 	logger := config.Logger.WithField("component", "slack.rtm")
 
-	client := slack.New(config.Slack.BotUserOAuthAccessToken)
+	client := slack.New(config.BotToken)
 
 	resp, err := client.AuthTest()
 	if err != nil {
-		logger.WithField("token", config.Slack.BotUserOAuthAccessToken).WithError(err).Error("auth test")
+		logger.WithField("token", config.BotToken).WithError(err).Error("auth test")
 		return
 	}
 
@@ -228,7 +238,7 @@ func (rtm *RTM) addRoom(id string, roomType roomType, name string, link string, 
 	}
 
 	rtm.logger.WithField("id", id).Info("adding room")
-	r := newRoom(rtm.config, rtm, id, roomType, name, link, rtm.config.Logger)
+	r := newRoom(rtm.config, rtm, id, roomType, name, link)
 	rtm.rooms[id] = r
 	r.sendIntro(initialStartup)
 }

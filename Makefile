@@ -3,7 +3,7 @@
 IMAGE_NAME := jaredreisinger/xyzzybot
 IMAGE_VERSION := 0.1
 
-build: build-dependencies generate
+build: build-dependencies # generate
 	go build -v .
 .PHONY: build
 
@@ -15,13 +15,13 @@ build-dependencies:
 	go get -v $$(go list -f '{{range .Deps}}{{printf "%s\n" .}}{{end}}' ./... | sort -u | grep -v "github.com/JaredReisinger/xyzzybot")
 .PHONY: build-dependencies
 
-generate:
-	@# Sadly, the util sub-package has to be *installed* for go generate
-	@# to work.  This seems unfortunate.
-	go install -v ./util
-	go generate -v ./interpreter
-	go clean -i ./util
-.PHONY: generate
+# generate:
+# 	@# Sadly, the util sub-package has to be *installed* for go generate
+# 	@# to work.  This seems unfortunate.
+# 	go install -v ./util
+# 	go generate -v ./interpreter
+# 	go clean -i ./util
+# .PHONY: generate
 
 acquire-external-tools:
 	go get -u golang.org/x/tools/cmd/stringer

@@ -3,15 +3,12 @@ package slack
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path"
 	"strings"
 
 	"github.com/nlopes/slack"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/xyzzybot/interpreter"
-	"github.com/JaredReisinger/xyzzybot/util"
+	"github.com/JaredReisinger/xyzzybot/glk"
 )
 
 const (
@@ -40,17 +37,17 @@ const (
 // Room represents a Slack channel (public, or private (group), or user
 // direct-message) to which we're connected.
 type Room struct {
-	ID       string
-	roomType roomType
-	name     string
-	link     string // formatted `<#C1234|foo>` or `<@U1234|bob>` link
-	config   *util.Config
-	rtm      *RTM
-	interp   *interpreter.Interpreter
-	logger   log.FieldLogger
+	ID          string
+	roomType    roomType
+	name        string
+	link        string // formatted `<#C1234|foo>` or `<@U1234|bob>` link
+	config      *Config
+	rtm         *RTM
+	interpreter glk.Interpreter
+	logger      log.FieldLogger
 }
 
-func newRoom(config *util.Config, rtm *RTM, id string, roomType roomType, name string, link string, logger log.FieldLogger) *Room {
+func newRoom(config *Config, rtm *RTM, id string, roomType roomType, name string, link string) *Room {
 	return &Room{
 		ID:       id,
 		roomType: roomType,
@@ -58,7 +55,7 @@ func newRoom(config *util.Config, rtm *RTM, id string, roomType roomType, name s
 		link:     link,
 		config:   config,
 		rtm:      rtm,
-		logger: logger.WithFields(log.Fields{
+		logger: config.Logger.WithFields(log.Fields{
 			"component": "slack",
 			"room":      name,
 			"roomID":    id,
@@ -74,15 +71,21 @@ func (r *Room) startGame(name string) error {
 	}
 
 	// Create a new interpreter for the requested game...
-	gameFile := path.Join(r.config.GameDirectory, name)
-	r.logger.WithField("gameFile", gameFile).Info("starting game")
-	i, err := interpreter.NewInterpreter(r.config, gameFile, r.logger)
+	r.logger.WithField("game", name).Info("starting game")
+	gameFile, err := r.config.Games.GetGameFile(name)
+	if err != nil {
+		r.logger.WithError(err).Error("getting game file")
+		return err
+	}
+	i, err := r.config.InterpreterFactory.NewInterpreter(gameFile, log.Fields{
+		"game": name,
+	})
 	if err != nil {
 		r.logger.WithError(err).Error("starting interpreter")
 		return err
 	}
 
-	go r.listenForGameOutput(i.Output)
+	go r.listenForGameOutput(i.GetOutputChannel())
 
 	err = i.Start()
 	if err != nil {
@@ -90,11 +93,11 @@ func (r *Room) startGame(name string) error {
 		return err
 	}
 
-	r.interp = i
+	r.interpreter = i
 	return nil
 }
 
-func (r *Room) listenForGameOutput(outchan chan *interpreter.GlkOutput) {
+func (r *Room) listenForGameOutput(outchan chan *glk.Output) {
 	r.logger.Info("setting up game output handler")
 	for {
 		output := <-outchan
@@ -110,7 +113,7 @@ func (r *Room) listenForGameOutput(outchan chan *interpreter.GlkOutput) {
 	}
 }
 
-func (r *Room) sendOutputMessage(output *interpreter.GlkOutput) {
+func (r *Room) sendOutputMessage(output *glk.Output) {
 	lines := []string{}
 	status := ""
 
@@ -143,13 +146,13 @@ func (r *Room) sendOutputMessage(output *interpreter.GlkOutput) {
 	r.sendMessageWithNameContext(msg, status, "game output")
 }
 
-func inferStatusWindow(w *interpreter.GlkWindow) bool {
-	return w.Type == interpreter.TextGridWindowType &&
+func inferStatusWindow(w *glk.Window) bool {
+	return w.Type == glk.TextGridWindow &&
 		w.Top == 0 &&
 		w.Height <= 5
 }
 
-func (r *Room) debugFormat(output *interpreter.GlkOutput) string {
+func (r *Room) debugFormat(output *glk.Output) string {
 	sep1 := "============================================================"
 	sep2 := "------------------------------------------------------------"
 	lines := []string{sep1}
@@ -167,10 +170,10 @@ func (r *Room) debugFormat(output *interpreter.GlkOutput) string {
 func (r *Room) killGame() {
 	r.logger.Info("recieved killGame request")
 
-	if r.interp != nil {
+	if r.interpreter != nil {
 		// TODO: stop listening to random stuff?
-		r.interp.Kill()
-		r.interp = nil
+		r.interpreter.Kill()
+		r.interpreter = nil
 	}
 }
 
@@ -285,7 +288,7 @@ func (r *Room) handleCommand(msgEvent *slack.MessageEvent, command string) {
 	// a leading metaCommandPrefix), it's a meta-command.
 
 	if r.gameInProgress() && !strings.HasPrefix(command, metaCommandPrefix) {
-		r.interp.SendLine(command)
+		r.interpreter.SendLine(command)
 		return
 	}
 
@@ -401,7 +404,8 @@ func (r *Room) commandStatus(cmdContext *commandContext, command string, args ..
 	admin := false
 	user, err := r.rtm.slackRTM.GetUserInfo(cmdContext.msgEvent.User)
 	if err == nil {
-		for _, a := range r.config.Slack.Admins {
+		// for _, a := range r.config.Slack.Admins {
+		for _, a := range r.config.Admins {
 			if strings.EqualFold(user.Name, a) {
 				admin = true
 				break
@@ -456,26 +460,33 @@ func formatRoomList(list []string, label string) string {
 }
 
 func (r *Room) commandList(cmdContext *commandContext, command string, args ...string) {
-	dir, err := os.Open(r.config.GameDirectory)
+	// dir, err := os.Open(r.config.GameDirectory)
+	// if err != nil {
+	// 	r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
+	// 	r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get to the list of games.  Please let %s know something needs to be tweaked!", r.config.Slack.Admins[0]))
+	// 	return
+	// }
+	//
+	// infos, err := dir.Readdir(-1)
+	// if err != nil {
+	// 	r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
+	// 	r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get the list of games.  Please let %s know something needs to be tweaked!", r.config.Slack.Admins[0]))
+	// 	return
+	// }
+	//
+	// files := make([]string, 0, len(infos))
+	//
+	// for _, info := range infos {
+	// 	if info.Mode().IsRegular() {
+	// 		files = append(files, info.Name())
+	// 	}
+	// }
+
+	games, err := r.config.Games.GetGames()
 	if err != nil {
-		r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
-		r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get to the list of games.  Please let %s know something needs to be tweaked!", r.config.Slack.Admins[0]))
+		r.logger.WithError(err).Error("unable to get games")
+		r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get to the list of games.  Please let %s know something needs to be tweaked!", r.config.Admins[0]))
 		return
-	}
-
-	infos, err := dir.Readdir(-1)
-	if err != nil {
-		r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
-		r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get the list of games.  Please let %s know something needs to be tweaked!", r.config.Slack.Admins[0]))
-		return
-	}
-
-	files := make([]string, 0, len(infos))
-
-	for _, info := range infos {
-		if info.Mode().IsRegular() {
-			files = append(files, info.Name())
-		}
 	}
 
 	warning := ""
@@ -484,7 +495,7 @@ func (r *Room) commandList(cmdContext *commandContext, command string, args ...s
 		warning = fmt.Sprintf("\n\n_Do note that there's currently a game in progress; you’ll need to finish or `%skill` it before you can start a new game._", metaCommandPrefix)
 	}
 
-	msg := fmt.Sprintf("The following games are currently available:\n     *%s*\n\nYou can start a game using *play _game-name_*%s", strings.Join(files, "*\n     *"), warning)
+	msg := fmt.Sprintf("The following games are currently available:\n     *%s*\n\nYou can start a game using *play _game-name_*%s", strings.Join(games, "*\n     *"), warning)
 	r.sendMessage(msg)
 }
 
@@ -518,7 +529,8 @@ func (r *Room) commandSpace(cmdContext *commandContext, command string, args ...
 		return
 	}
 
-	r.interp.SendKey(" ")
+	// r.interpreter.SendKey(" ")
+	r.interpreter.SendChar(' ')
 }
 
 func (r *Room) commandKey(cmdContext *commandContext, command string, args ...string) {
@@ -532,7 +544,8 @@ func (r *Room) commandKey(cmdContext *commandContext, command string, args ...st
 		key = args[0]
 	}
 
-	r.interp.SendKey(key)
+	// r.interpreter.SendKey(key)
+	r.interpreter.SendChar(rune(key[0]))
 }
 
 func (r *Room) commandUnknown(cmdContext *commandContext, command string, args ...string) {
@@ -544,5 +557,5 @@ func (r *Room) gameInProgress() bool {
 	// Should we also check to see that the underlying process is really
 	// working?  (This could/should be exposed as a helper on Interpreter
 	// itself.)
-	return r.interp != nil
+	return r.interpreter != nil
 }
