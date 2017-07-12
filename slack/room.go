@@ -42,19 +42,19 @@ type Room struct {
 	name        string
 	link        string // formatted `<#C1234|foo>` or `<@U1234|bob>` link
 	config      *Config
-	rtm         *RTM
+	manager     *Manager
 	interpreter glk.Interpreter
 	logger      log.FieldLogger
 }
 
-func newRoom(config *Config, rtm *RTM, id string, roomType roomType, name string, link string) *Room {
+func newRoom(config *Config, manager *Manager, id string, roomType roomType, name string, link string) *Room {
 	return &Room{
 		ID:       id,
 		roomType: roomType,
 		name:     name,
 		link:     link,
 		config:   config,
-		rtm:      rtm,
+		manager:  manager,
 		logger: config.Logger.WithFields(log.Fields{
 			"component": "slack",
 			"room":      name,
@@ -187,21 +187,21 @@ func (r *Room) sendIntro(initialStartup bool) {
 	}
 
 	if format != "" {
-		msg := fmt.Sprintf(format, r.rtm.authInfo.User)
+		msg := fmt.Sprintf(format, r.manager.authInfo.User)
 		r.sendMessage(msg)
 	}
 }
 
 func (r *Room) sendMessage(text string) {
-	r.rtm.sendMessage(r.ID, text)
+	r.manager.sendMessage(r.ID, text)
 }
 
 // func (r *Room) sendMessageWithStatus(text string, status string) {
-// 	r.rtm.sendMessageWithStatus(r.ID, text, status)
+// 	r.manager.sendMessageWithStatus(r.ID, text, status)
 // }
 
 func (r *Room) sendMessageWithNameContext(text string, status string, nameContext string) {
-	r.rtm.sendMessageWithNameContext(r.ID, text, status, nameContext)
+	r.manager.sendMessageWithNameContext(r.ID, text, status, nameContext)
 }
 
 type commandContext struct {
@@ -363,7 +363,7 @@ func (r *Room) helpBrief() {
 
 	lines := make([]string, 0, 3)
 
-	lines = append(lines, fmt.Sprintf("I’m %s, and I’m here to help you experience the world of interactive fiction.\n\nRight now, I can: %s.", r.rtm.authInfo.User, strings.Join(formattedCommands, ", ")))
+	lines = append(lines, fmt.Sprintf("I’m %s, and I’m here to help you experience the world of interactive fiction.\n\nRight now, I can: %s.", r.manager.authInfo.User, strings.Join(formattedCommands, ", ")))
 
 	lines = append(lines, fmt.Sprintf("\nYou can also try *%shelp commands* to get further details.", contextualPrefix))
 
@@ -396,13 +396,13 @@ func (r *Room) helpCommands() {
 	lines = append(lines, "You might have noticed that these commands are *%[1]s*-prefixed.  That’s how I can tell that a command is meant for me rather than the game.  You can also use any of the first set of commands during a game, but you’ll need to *%[1]s*-prefix them so that I know they’re meant for me.")
 
 	format := strings.Join(lines, "\n")
-	msg := fmt.Sprintf(format, metaCommandPrefix, r.rtm.authInfo.User)
+	msg := fmt.Sprintf(format, metaCommandPrefix, r.manager.authInfo.User)
 	r.sendMessage(msg)
 }
 
 func (r *Room) commandStatus(cmdContext *commandContext, command string, args ...string) {
 	admin := false
-	user, err := r.rtm.slackRTM.GetUserInfo(cmdContext.msgEvent.User)
+	user, err := r.manager.slackRTM.GetUserInfo(cmdContext.msgEvent.User)
 	if err == nil {
 		// for _, a := range r.config.Slack.Admins {
 		for _, a := range r.config.Admins {
@@ -420,7 +420,7 @@ func (r *Room) commandStatus(cmdContext *commandContext, command string, args ..
 		inProgress = "There *is not* currently a game in progress."
 	}
 
-	typeLinks := r.rtm.getActiveRoomLinks()
+	typeLinks := r.manager.getActiveRoomLinks()
 
 	channelList := formatRoomList(typeLinks[channelRoom], "channel")
 	var roomList string

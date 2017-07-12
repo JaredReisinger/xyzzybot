@@ -46,16 +46,18 @@ func main() {
 	}
 
 	logger.Info("Starting xyzzybot...")
+	defer logger.Info("xyzzybot exited")
 
-	rtm, err := slack.StartRTM(botConfig)
+	manager, err := slack.StartManager(botConfig)
 	if err != nil {
-		logger.WithError(err).Error("starting slack RTM")
+		logger.WithError(err).Error("starting slack manager")
 		return
 	}
+	defer manager.Disconnect()
 
 	runUntilSignal(logger)
 
-	rtm.Disconnect()
+	logger.Info("xyzzybot exiting")
 }
 
 func runUntilSignal(logger log.FieldLogger) {

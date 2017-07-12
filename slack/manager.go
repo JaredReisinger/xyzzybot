@@ -21,8 +21,8 @@ type Config struct {
 	InterpreterFactory glk.InterpreterFactory
 }
 
-// RTM ...
-type RTM struct {
+// Manager ...
+type Manager struct {
 	// config   *util.Config
 	config   *Config
 	logger   log.FieldLogger
@@ -36,9 +36,9 @@ type RTM struct {
 
 type roomMap map[string]*Room
 
-// StartRTM ...
-func StartRTM(config *Config) (rtm *RTM, err error) {
-	logger := config.Logger.WithField("component", "slack.rtm")
+// StartManager ...
+func StartManager(config *Config) (manager *Manager, err error) {
+	logger := config.Logger.WithField("component", "slack.manager")
 
 	client := slack.New(config.BotToken)
 
@@ -50,7 +50,7 @@ func StartRTM(config *Config) (rtm *RTM, err error) {
 
 	logger.WithField("response", resp).Debug("auth good!")
 
-	rtm = &RTM{
+	manager = &Manager{
 		config:   config,
 		logger:   logger,
 		slackRTM: client.NewRTM(),
@@ -60,20 +60,20 @@ func StartRTM(config *Config) (rtm *RTM, err error) {
 		quit:     make(chan bool),
 	}
 
-	go rtm.handleEvents()
-	go rtm.slackRTM.ManageConnection()
+	go manager.handleEvents()
+	go manager.slackRTM.ManageConnection()
 
 	return
 }
 
 // Disconnect ...
-func (rtm *RTM) Disconnect() {
-	close(rtm.quit)
+func (manager *Manager) Disconnect() {
+	close(manager.quit)
 }
 
-func (rtm *RTM) getActiveRoomLinks() (typeNames map[roomType][]string) {
+func (manager *Manager) getActiveRoomLinks() (typeNames map[roomType][]string) {
 	typeNames = make(map[roomType][]string, 0)
-	for _, r := range rtm.rooms {
+	for _, r := range manager.rooms {
 		typeNames[r.roomType] = append(typeNames[r.roomType], r.link)
 	}
 
@@ -90,18 +90,18 @@ func (rtm *RTM) getActiveRoomLinks() (typeNames map[roomType][]string) {
 	return
 }
 
-func (rtm *RTM) handleEvents() {
-	defer rtm.slackRTM.Disconnect()
+func (manager *Manager) handleEvents() {
+	defer manager.slackRTM.Disconnect()
 
 	for {
 		select {
-		case rtmEvent := <-rtm.slackRTM.IncomingEvents:
+		case managerEvent := <-manager.slackRTM.IncomingEvents:
 			// Always process events in a goroutine to keep this handler loop
 			// unblocked and responsive!
-			go rtm.processEvent(rtmEvent)
+			go manager.processEvent(managerEvent)
 
-		case _, ok := <-rtm.quit:
-			rtm.logger.WithField("ok", ok).Debug("Got quit")
+		case _, ok := <-manager.quit:
+			manager.logger.WithField("ok", ok).Debug("Got quit")
 			break
 		}
 	}
@@ -120,102 +120,102 @@ func createUserLink(u *slack.User) string {
 	return fmt.Sprintf("<@%s|%s>", u.ID, u.Name)
 }
 
-func (rtm *RTM) processEvent(rtmEvent slack.RTMEvent) {
-	// rtm.logger.WithFields(log.Fields{
-	// 	"eventName": rtmEvent.Type,
-	// 	"eventData": rtmEvent.Data,
+func (manager *Manager) processEvent(managerEvent slack.RTMEvent) {
+	// manager.logger.WithFields(log.Fields{
+	// 	"eventName": managerEvent.Type,
+	// 	"eventData": managerEvent.Data,
 	// }).Debug("Got event")
 
-	switch t := rtmEvent.Data.(type) {
+	switch t := managerEvent.Data.(type) {
 
 	case *slack.ConnectedEvent:
-		rtm.handleConnectedEvent(t)
+		manager.handleConnectedEvent(t)
 
 	case *slack.ChannelJoinedEvent:
-		rtm.logger.WithField("channel", t.Channel).Info("joined channel")
-		rtm.addRoom(t.Channel.ID, channelRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
+		manager.logger.WithField("channel", t.Channel).Info("joined channel")
+		manager.addRoom(t.Channel.ID, channelRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
 
 	case *slack.ChannelLeftEvent:
-		rtm.logger.WithFields(log.Fields{
+		manager.logger.WithFields(log.Fields{
 			"channel": t.Channel,
 			"user":    t.User,
 		}).Info("left channel")
 
 	case *slack.ChannelRenameEvent:
-		// rtm.logger.WithFields(log.Fields{
+		// manager.logger.WithFields(log.Fields{
 		// 	"id":   t.Channel.ID,
 		// 	"name": t.Channel.Name,
 		// }).Info("rename channel")
-		rtm.renameRoom(t.Channel.ID, t.Channel.Name)
+		manager.renameRoom(t.Channel.ID, t.Channel.Name)
 
 	case *slack.GroupJoinedEvent:
-		rtm.logger.WithField("channel", t.Channel).Info("joined group (private channel)")
-		rtm.addRoom(t.Channel.ID, groupRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
+		manager.logger.WithField("channel", t.Channel).Info("joined group (private channel)")
+		manager.addRoom(t.Channel.ID, groupRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
 
 	case *slack.GroupLeftEvent:
-		rtm.logger.WithFields(log.Fields{
+		manager.logger.WithFields(log.Fields{
 			"channel": t.Channel,
 			"user":    t.User,
 		}).Info("left group (private channel)")
 
 	case *slack.GroupRenameEvent:
-		// rtm.logger.WithFields(log.Fields{
+		// manager.logger.WithFields(log.Fields{
 		// 	"id":   t.Channel.ID,
 		// 	"name": t.Channel.Name,
 		// }).Info("rename channel")
-		rtm.renameRoom(t.Group.ID, t.Group.Name)
+		manager.renameRoom(t.Group.ID, t.Group.Name)
 
 	case *slack.MessageEvent:
-		rtm.handleMessageEvent(t)
+		manager.handleMessageEvent(t)
 
 		// default:
-		// 	rtm.logger.WithFields(log.Fields{
-		// 		"eventName":     rtmEvent.Type,
+		// 	manager.logger.WithFields(log.Fields{
+		// 		"eventName":     managerEvent.Type,
 		// 		"eventDataType": fmt.Sprintf("%T", t),
 		// 		"eventData":     t,
 		// 	}).Debug("unhandled event")
 	}
 }
 
-func (rtm *RTM) handleConnectedEvent(connEvent *slack.ConnectedEvent) {
+func (manager *Manager) handleConnectedEvent(connEvent *slack.ConnectedEvent) {
 	info := connEvent.Info
 
-	// rtm.logger.WithField("info", info).Info("connected")
-	rtm.logger.Info("connected")
+	// manager.logger.WithField("info", info).Info("connected")
+	manager.logger.Info("connected")
 
 	// connEvent.Info.User includes details that may be better than those from
 	// authtest...
-	rtm.self = info.User
+	manager.self = info.User
 
 	// info.Channels includes *all* public channels... we only care about the
 	// ones of which we're a member.
 	for _, c := range info.Channels {
 		if c.IsMember {
-			rtm.logger.WithFields(log.Fields{
+			manager.logger.WithFields(log.Fields{
 				"channel": c.Name,
 				// "open":    c.IsOpen,
 			}).Debug("adding channel")
-			rtm.addRoom(c.ID, channelRoom, c.Name, createChannelLink(&c), true)
+			manager.addRoom(c.ID, channelRoom, c.Name, createChannelLink(&c), true)
 		}
 	}
 
 	// info.Groups includes *only* groups (private channels) of which we're
 	// already a member.
 	for _, g := range info.Groups {
-		rtm.logger.WithFields(log.Fields{
+		manager.logger.WithFields(log.Fields{
 			"group": g.Name,
 			// "open":  g.IsOpen,
 		}).Debug("adding group (private channel)")
-		rtm.addRoom(g.ID, groupRoom, g.Name, createGroupLink(&g), true)
+		manager.addRoom(g.ID, groupRoom, g.Name, createGroupLink(&g), true)
 	}
 
 	for _, d := range info.IMs {
-		user, err := rtm.slackRTM.GetUserInfo(d.User)
+		user, err := manager.slackRTM.GetUserInfo(d.User)
 		if err != nil {
-			rtm.logger.WithField("id", d.User).WithError(err).Error("getting user")
+			manager.logger.WithField("id", d.User).WithError(err).Error("getting user")
 			continue
 		}
-		rtm.logger.WithFields(log.Fields{
+		manager.logger.WithFields(log.Fields{
 			"id": d.ID,
 			// "open": d.IsOpen,
 			"user": d.User,
@@ -223,64 +223,64 @@ func (rtm *RTM) handleConnectedEvent(connEvent *slack.ConnectedEvent) {
 			"bot":  user.IsBot,
 		}).Debug("direct message (im) info")
 		if d.User != "USLACKBOT" {
-			rtm.addRoom(d.ID, directRoom, user.Name, createUserLink(user), true)
+			manager.addRoom(d.ID, directRoom, user.Name, createUserLink(user), true)
 		}
 	}
 }
 
-func (rtm *RTM) addRoom(id string, roomType roomType, name string, link string, initialStartup bool) {
-	_, ok := rtm.rooms[id]
+func (manager *Manager) addRoom(id string, roomType roomType, name string, link string, initialStartup bool) {
+	_, ok := manager.rooms[id]
 
 	if ok {
-		rtm.logger.WithField("id", id).Warn("attempting to add existing room")
+		manager.logger.WithField("id", id).Warn("attempting to add existing room")
 		// REVIEW: post a message in this case?
 		return
 	}
 
-	rtm.logger.WithField("id", id).Info("adding room")
-	r := newRoom(rtm.config, rtm, id, roomType, name, link)
-	rtm.rooms[id] = r
+	manager.logger.WithField("id", id).Info("adding room")
+	r := newRoom(manager.config, manager, id, roomType, name, link)
+	manager.rooms[id] = r
 	r.sendIntro(initialStartup)
 }
 
-func (rtm *RTM) renameRoom(id string, name string) {
-	r, ok := rtm.rooms[id]
+func (manager *Manager) renameRoom(id string, name string) {
+	r, ok := manager.rooms[id]
 
 	if !ok {
 		return
 	}
-	rtm.logger.WithFields(log.Fields{
+	manager.logger.WithFields(log.Fields{
 		"id":   id,
 		"name": name,
 	}).Info("renaming room")
 	r.name = name
 }
 
-func (rtm *RTM) removeRoom(channel string) {
-	r, ok := rtm.rooms[channel]
+func (manager *Manager) removeRoom(channel string) {
+	r, ok := manager.rooms[channel]
 
 	if !ok {
-		rtm.logger.WithField("channel", channel).Warn("attempting to remove non-tracked channel")
+		manager.logger.WithField("channel", channel).Warn("attempting to remove non-tracked channel")
 		// REVIEW: post a message in this case?
 		return
 	}
 
-	rtm.logger.WithField("channel", channel).Info("removing channel")
+	manager.logger.WithField("channel", channel).Info("removing channel")
 	r.killGame()
-	delete(rtm.rooms, channel)
+	delete(manager.rooms, channel)
 }
 
-func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
+func (manager *Manager) handleMessageEvent(msgEvent *slack.MessageEvent) {
 	// TODO: only turn on with increased verbosity?
-	// rtm.logger.WithFields(log.Fields{
+	// manager.logger.WithFields(log.Fields{
 	// 	"channel":  msgEvent.Channel,
 	// 	"user":     msgEvent.User,
 	// 	"username": msgEvent.Username,
 	// 	"text":     msgEvent.Text,
 	// }).Debug("message")
 
-	if msgEvent.User == "" || msgEvent.User == rtm.authInfo.UserID {
-		// rtm.logger.Debug("ignoring message from ourself...")
+	if msgEvent.User == "" || msgEvent.User == manager.authInfo.UserID {
+		// manager.logger.Debug("ignoring message from ourself...")
 		return
 	}
 
@@ -288,27 +288,27 @@ func (rtm *RTM) handleMessageEvent(msgEvent *slack.MessageEvent) {
 	// whether the message represents a command or not... but it's much harder
 	// to read the logic that way.
 	text := msgEvent.Text
-	forSomeoneElse := rtm.isForSomeoneElse(text)
-	toUs := rtm.isExplicitlyToMe(text)
+	forSomeoneElse := manager.isForSomeoneElse(text)
+	toUs := manager.isExplicitlyToMe(text)
 	// Ensure any direct-address (to us) is stripped first...
-	command := strings.TrimPrefix(text, rtm.selfLink)
+	command := strings.TrimPrefix(text, manager.selfLink)
 	command = strings.TrimSpace(command)
-	looksLike := rtm.looksLikeCommand(command)
+	looksLike := manager.looksLikeCommand(command)
 
 	if forSomeoneElse || (!toUs && !looksLike) {
 		return
 	}
 
-	r, ok := rtm.rooms[msgEvent.Channel]
+	r, ok := manager.rooms[msgEvent.Channel]
 	if !ok {
 		// Can this ever happen?
-		rtm.handleCommand(msgEvent, msgEvent.Channel, command)
+		manager.handleCommand(msgEvent, msgEvent.Channel, command)
 	} else {
 		r.handleCommand(msgEvent, command)
 	}
 }
 
-func (rtm *RTM) looksLikeCommand(text string) bool {
+func (manager *Manager) looksLikeCommand(text string) bool {
 	words := strings.Fields(text)
 	// If it's more than 4 words, it's *probably* not a command
 	return len(words) <= 4
@@ -317,12 +317,12 @@ func (rtm *RTM) looksLikeCommand(text string) bool {
 var userLink = regexp.MustCompile("<@([^>]+)>")
 
 // a message is for someone else if they are directly mentioned
-func (rtm *RTM) isForSomeoneElse(text string) bool {
+func (manager *Manager) isForSomeoneElse(text string) bool {
 	matches := userLink.FindAllStringSubmatch(text, -1)
 
 	// If *any* match is for not-us, we can be definite...
 	for _, match := range matches {
-		if len(match) > 1 && match[1] != rtm.authInfo.UserID {
+		if len(match) > 1 && match[1] != manager.authInfo.UserID {
 			return true
 		}
 	}
@@ -330,26 +330,26 @@ func (rtm *RTM) isForSomeoneElse(text string) bool {
 	return false
 }
 
-func (rtm *RTM) isExplicitlyToMe(text string) bool {
+func (manager *Manager) isExplicitlyToMe(text string) bool {
 	// TODO: handle direct messages differently?  What about low-member-count
 	// channels?  Should this be configurable?
-	return strings.HasPrefix(text, rtm.selfLink)
+	return strings.HasPrefix(text, manager.selfLink)
 }
 
-func (rtm *RTM) handleCommand(msgEvent *slack.MessageEvent, channel string, command string) {
+func (manager *Manager) handleCommand(msgEvent *slack.MessageEvent, channel string, command string) {
 	reply := fmt.Sprintf("It looks like you want me to try doing `%s`... but for some reason I don’t already know about this channel (%s)!", command, channel)
-	rtm.sendMessage(channel, reply)
+	manager.sendMessage(channel, reply)
 }
 
-func (rtm *RTM) sendMessage(channel string, text string) {
-	rtm.sendMessageWithStatus(channel, text, "")
+func (manager *Manager) sendMessage(channel string, text string) {
+	manager.sendMessageWithStatus(channel, text, "")
 }
 
-func (rtm *RTM) sendMessageWithStatus(channel string, text string, status string) {
-	rtm.sendMessageWithNameContext(channel, text, status, "")
+func (manager *Manager) sendMessageWithStatus(channel string, text string, status string) {
+	manager.sendMessageWithNameContext(channel, text, status, "")
 }
 
-func (rtm *RTM) sendMessageWithNameContext(channel string, text string, status string, nameContext string) {
+func (manager *Manager) sendMessageWithNameContext(channel string, text string, status string, nameContext string) {
 	// All of the message-posting/sending APIs are gross, each in their own way.
 	// You'd think there'd just be one that took a message object and sent it,
 	// but they all take pieces and parts and cram them together.
@@ -358,7 +358,7 @@ func (rtm *RTM) sendMessageWithNameContext(channel string, text string, status s
 	if nameContext != "" {
 		nameContext = fmt.Sprintf(" (%s)", nameContext)
 	}
-	params.Username = fmt.Sprintf("%s%s", rtm.authInfo.User, nameContext)
+	params.Username = fmt.Sprintf("%s%s", manager.authInfo.User, nameContext)
 	params.EscapeText = false
 
 	if status != "" {
@@ -372,9 +372,9 @@ func (rtm *RTM) sendMessageWithNameContext(channel string, text string, status s
 		}
 	}
 	// params.Attachments = ...
-	_, _, err := rtm.slackRTM.PostMessage(channel, text, params)
+	_, _, err := manager.slackRTM.PostMessage(channel, text, params)
 	if err != nil {
-		rtm.logger.WithError(err).Error("posting message")
+		manager.logger.WithError(err).Error("posting message")
 		return
 	}
 }
