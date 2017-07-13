@@ -1,6 +1,7 @@
 package games
 
 import (
+	"io"
 	"os"
 	"path"
 
@@ -49,12 +50,31 @@ func (fs *FileSys) GetGameFile(game string) (string, error) {
 	return gameFile, nil
 }
 
-// // CreateInterpreter starts an interpreter for the given game.
-// func (fs *FileSys) CreateInterpreter(game string) (interpreter.Interpreter, error) {
-// 	gameFile := path.Join(fs.Directory, game)
-// 	fs.Logger.WithFields(log.Fields{
-// 		"game": game,
-// 		"file": gameFile,
-// 	}).Info("starting game")
-// 	return fs.InterpreterFactory.NewInterpreter(gameFile, log.Fields{"game": game})
-// }
+// AddGameFile adds a new game to the repository
+func (fs *FileSys) AddGameFile(fileName string, r io.Reader) error {
+	// FUTURE: Ensure there are no relative file parts ("..", "/") in the
+	// name...
+	gameFile := path.Join(fs.Directory, fileName)
+	logger2 := fs.Logger.WithFields(log.Fields{
+		"game": fileName,
+		"file": gameFile,
+	})
+
+	logger2.Info("adding game")
+	f, err := os.Create(gameFile)
+	if err != nil {
+		logger2.WithError(err).Error("creating game file")
+		return err
+	}
+	defer f.Close()
+
+	written, err := io.Copy(f, r)
+	if err != nil {
+		logger2.WithError(err).Error("writing game file")
+		return err
+	}
+
+	logger2.WithField("written", written).Info("game file written")
+
+	return nil
+}

@@ -106,10 +106,10 @@ may shift:
 
 * [ ] allow for per-channel configuration (and persistence)
 
-* [ ] administrative commands
+* [x] administrative commands (a very few)
 
-* [ ] in-Slack commands for uploading new games
+* [x] in-Slack commands for uploading new games (very simple, first-pass UI)
 
-* [ ] gameplay in xyzzybot direct messages (?)
+* [x] gameplay in xyzzybot direct messages (?)
 
 > _(more to come)_

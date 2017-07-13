@@ -3,6 +3,9 @@ package slack
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"path"
+	"regexp"
 	"strings"
 
 	"github.com/nlopes/slack"
@@ -213,6 +216,7 @@ type commandHandler func(cmdContext *commandContext, command string, args ...str
 type commandDescription struct {
 	name       string
 	handler    commandHandler
+	adminOnly  bool
 	inGameOnly bool
 	short      string
 	long       string
@@ -235,12 +239,14 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 			"help",
 			r.commandHelp,
 			false,
+			false,
 			"this message",
 			"[long help for help]",
 		},
 		&commandDescription{
 			"status",
 			r.commandStatus,
+			false,
 			false,
 			"operational status about myself",
 			"[long help for status]",
@@ -249,6 +255,7 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 			"list",
 			r.commandList,
 			false,
+			false,
 			"list the available games",
 			"[long help for list]",
 		},
@@ -256,12 +263,14 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 			"play",
 			r.commandPlay,
 			false,
+			false,
 			"with a game name (*play _game-name_\u200d*), starts _game-name_",
 			"[long help for play]",
 		},
 		&commandDescription{
 			"kill",
 			r.commandKill,
+			false,
 			true,
 			"kill the current in-progress game",
 			"[long help for kill]",
@@ -269,6 +278,7 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 		&commandDescription{
 			"space",
 			r.commandSpace,
+			false,
 			true,
 			"send a space character to the game (needed for some prompts)",
 			"[long help for space]",
@@ -276,9 +286,18 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 		&commandDescription{
 			"key",
 			r.commandKey,
+			false,
 			true,
 			"with a character (*%[1]skey x*), sends a raw key to the game",
 			"[long help for key]",
+		},
+		&commandDescription{
+			"upload",
+			r.commandUpload,
+			true,
+			false,
+			"adds a new game to the system from a url",
+			"If you tell me to *upload _url-to-game_*, I’ll retrieve the game and add it to the list.  Note that this will only work if you’re a xyzzybot admin.  If you’re looking for games, try <http://ifdb.tads.org/|the Interactive Fiction Database>",
 		},
 	}
 }
@@ -297,14 +316,20 @@ func (r *Room) handleCommand(msgEvent *slack.MessageEvent, command string) {
 	// right now, we only do super-simple command parsing...
 	words := strings.Fields(command)
 
-	commandDescs := r.getCommandDescriptions()
+	cmdContext := &commandContext{msgEvent}
 
+	commandDescs := r.getCommandDescriptions()
 	var desc *commandDescription
 	for _, d := range commandDescs {
 		if d.name == words[0] {
 			desc = d
 			break
 		}
+	}
+
+	if desc.adminOnly && !r.fromAdmin(cmdContext) {
+		// TODO: point out that the user isn't an admin...
+		desc = nil
 	}
 
 	handler := r.commandUnknown
@@ -324,6 +349,7 @@ func (r *Room) commandHelp(cmdContext *commandContext, command string, args ...s
 		default:
 			commandDescs := r.getCommandDescriptions()
 			for _, d := range commandDescs {
+				// TODO: only show admin commands to an admin?
 				if d.name == args[0] {
 					r.sendMessage(d.long)
 					return
@@ -381,7 +407,11 @@ func (r *Room) helpCommands() {
 		if d.inGameOnly {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("     *%s* — %s", d.name, d.short))
+		adminOnly := ""
+		if d.adminOnly {
+			adminOnly = " _(admin only)_"
+		}
+		lines = append(lines, fmt.Sprintf("     *%s* — %s%s", d.name, d.short, adminOnly))
 	}
 
 	lines = append(lines, "\nWhen there _is_ a game under way, there are a few additional things I can help with:")
@@ -400,18 +430,20 @@ func (r *Room) helpCommands() {
 	r.sendMessage(msg)
 }
 
-func (r *Room) commandStatus(cmdContext *commandContext, command string, args ...string) {
-	admin := false
+func (r *Room) fromAdmin(cmdContext *commandContext) bool {
 	user, err := r.manager.slackRTM.GetUserInfo(cmdContext.msgEvent.User)
 	if err == nil {
-		// for _, a := range r.config.Slack.Admins {
 		for _, a := range r.config.Admins {
 			if strings.EqualFold(user.Name, a) {
-				admin = true
-				break
+				return true
 			}
 		}
 	}
+	return false
+}
+
+func (r *Room) commandStatus(cmdContext *commandContext, command string, args ...string) {
+	admin := r.fromAdmin(cmdContext)
 
 	var inProgress string
 	if r.gameInProgress() {
@@ -460,28 +492,6 @@ func formatRoomList(list []string, label string) string {
 }
 
 func (r *Room) commandList(cmdContext *commandContext, command string, args ...string) {
-	// dir, err := os.Open(r.config.GameDirectory)
-	// if err != nil {
-	// 	r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
-	// 	r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get to the list of games.  Please let %s know something needs to be tweaked!", r.config.Slack.Admins[0]))
-	// 	return
-	// }
-	//
-	// infos, err := dir.Readdir(-1)
-	// if err != nil {
-	// 	r.logger.WithField("path", r.config.GameDirectory).WithError(err).Error("unable to open game directory")
-	// 	r.sendMessage(fmt.Sprintf("I’m sorry, I wasn’t able to get the list of games.  Please let %s know something needs to be tweaked!", r.config.Slack.Admins[0]))
-	// 	return
-	// }
-	//
-	// files := make([]string, 0, len(infos))
-	//
-	// for _, info := range infos {
-	// 	if info.Mode().IsRegular() {
-	// 		files = append(files, info.Name())
-	// 	}
-	// }
-
 	games, err := r.config.Games.GetGames()
 	if err != nil {
 		r.logger.WithError(err).Error("unable to get games")
@@ -546,6 +556,48 @@ func (r *Room) commandKey(cmdContext *commandContext, command string, args ...st
 
 	// r.interpreter.SendKey(key)
 	r.interpreter.SendChar(rune(key[0]))
+}
+
+var gameLink = regexp.MustCompile("<(.+)(|.+)?>")
+
+func (r *Room) commandUpload(cmdContext *commandContext, command string, args ...string) {
+	if len(args) != 1 {
+		r.sendMessage("I expect one—and _only_ one—URL from which to retrieve a game file: *upload _url-to-game_*")
+		return
+	}
+
+	// Slack wraps "<>" around URLs, so we need to strip them...
+	url := args[0]
+	if strings.HasPrefix(url, "<") {
+		matches := gameLink.FindStringSubmatch(args[0])
+		if matches == nil {
+			r.logger.WithField("url", url).Error("could not extract url")
+			r.sendMessage(fmt.Sprintf("I’m sorry, I couldn’t make sense of `%s` as a url. ", url))
+			return
+		}
+		url = matches[1]
+	}
+
+	logger2 := r.logger.WithField("url", url)
+
+	logger2.Debug("downloading game")
+	resp, err := http.Get(url)
+	if err != nil {
+		logger2.WithError(err).Error("downloading game")
+		r.sendMessage(fmt.Sprintf("I wasn’t able to download %s... %s", url, err.Error()))
+		return
+	}
+	defer resp.Body.Close()
+
+	gameName := path.Base(resp.Request.URL.Path)
+	err = r.config.Games.AddGameFile(gameName, resp.Body)
+	if err != nil {
+		logger2.WithField("game", gameName).WithError(err).Error("saving game")
+		r.sendMessage(fmt.Sprintf("I wasn't able to save %s to %s... %s", url, gameName, err.Error()))
+		return
+	}
+
+	r.sendMessage(fmt.Sprintf("Upload complete!  The game *%s* is now available!", gameName))
 }
 
 func (r *Room) commandUnknown(cmdContext *commandContext, command string, args ...string) {
