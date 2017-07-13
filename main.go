@@ -163,20 +163,18 @@ func readTokenFile(tokenFile string, logger log.FieldLogger) (token string, err 
 	}
 	defer f.Close()
 
-	r := bufio.NewReader(f)
-	for token == "" {
-		token, err = r.ReadString('\n')
-		if err != nil {
-			logger2.WithError(err).Error("reading token file")
-			return
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		line := s.Text()
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "#") {
+			token = line
+			break
 		}
-
-		token = strings.TrimSpace(token)
-
-		// treat #-prefixed lines as blank...
-		if strings.HasPrefix(token, "#") {
-			token = ""
-		}
+	}
+	if err = s.Err(); err != nil {
+		logger2.WithError(err).Error("reading token file")
+		return
 	}
 
 	if token == "" {
