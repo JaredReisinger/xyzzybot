@@ -16,6 +16,11 @@ import (
 	"github.com/JaredReisinger/xyzzybot/slack"
 )
 
+const (
+	defaultGameDirectory = "/usr/local/games"
+	defaultConfigFile    = "/usr/local/etc/xyzzybot/config.json"
+)
+
 func main() {
 	logBase := log.StandardLogger()
 	logBase.Level = log.DebugLevel
@@ -34,9 +39,22 @@ func main() {
 
 	flag.Parse()
 
-	config, err := ParseConfigFile(*configParam, logBase)
+	// if there's no -config flag, we look in a default location
+	configFile := *configParam
+	requireConfig := true
+
+	if configFile == "" {
+		configFile = defaultConfigFile
+		requireConfig = false
+	}
+
+	config, err := ParseConfigFile(configFile, logBase)
 	if err != nil {
-		logger.WithField("file", *configParam).WithError(err).Fatal("error parsing config file")
+		if requireConfig {
+			logger.WithField("file", configFile).WithError(err).Fatal("error parsing config file")
+		} else {
+			logger.WithField("file", configFile).WithError(err).Debug("error parsing default config file")
+		}
 	}
 
 	// override any config values with command-line ones...
@@ -87,6 +105,18 @@ func main() {
 		if err != nil {
 			logger.WithError(err).Fatal("unable to read token from file")
 		}
+	}
+
+	// Fill in any defaults if they're still not set...
+
+	if config.GameDirectory == "" {
+		logger.WithField("value", defaultGameDirectory).Debug("falling back to default game directory")
+		config.GameDirectory = defaultGameDirectory
+	}
+
+	// If we don't have a bot token, that's a fatal error...
+	if config.BotToken == "" {
+		logger.Fatal("no bot token found")
 	}
 
 	logger.WithField("config", config).Debug("using config")

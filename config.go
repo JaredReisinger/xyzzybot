@@ -20,10 +20,10 @@ type Config struct {
 // ParseConfigFile attempts to load a Config struct, using the data in a JSON
 // file.
 func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config, err error) {
+	// always return an empty config, rather than nil!
+	config = &Config{}
 
 	if len(configFile) == 0 {
-		// return an empty config, rather than nil!
-		config = &Config{}
 		return
 	}
 
