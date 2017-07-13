@@ -19,7 +19,6 @@ RUN set -eux; \
         make \
         ; \
     git clean -f -x -d; \
-    make acquire-external-tools; \
     echo "build/install..."; \
     make build; \
     echo "cleanup..."; \
@@ -31,4 +30,16 @@ RUN set -eux; \
 
 FROM jaredreisinger/fizmo-remglk
 
-COPY --from=build /go/src/github.com/JaredReisinger/xyzzybot/xyzzybot /usr/local/bin/.
+LABEL maintainer="jaredreisinger@hotmail.com" \
+    xyzzybot.version="0.1"
+
+COPY --from=build /go/src/github.com/JaredReisinger/xyzzybot/xyzzybot /usr/local/bin/
+
+RUN set -eux; \
+    echo "creating config directory"; \
+    mkdir -p /usr/local/etc/xyzzybot; \
+    echo "DONE";
+
+VOLUME /usr/local/etc/xyzzybot
+
+CMD [ "/usr/local/bin/xyzzybot" ]

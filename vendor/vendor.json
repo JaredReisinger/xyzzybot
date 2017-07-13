@@ -1,0 +1,31 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "SDdJQg0eCU2IfLSuUafSJwQPjh4=",
+			"path": "github.com/nlopes/slack",
+			"revision": "ca8436d76f805ec1e682eaae2de3c3a9bc894b0f",
+			"revisionTime": "2017-07-01T16:13:22Z"
+		},
+		{
+			"checksumSHA1": "rAtxHI1ocXvoo88jgRIBAeWH2wc=",
+			"path": "github.com/sirupsen/logrus",
+			"revision": "1fe8319fcaef78ef9220c9b05178df0f871dbc5d",
+			"revisionTime": "2017-07-12T16:35:25Z"
+		},
+		{
+			"checksumSHA1": "7EZyXN0EmZLgGxZxK01IJua4c8o=",
+			"path": "golang.org/x/net/websocket",
+			"revision": "f01ecb60fe3835d80d9a0b7b2bf24b228c89260e",
+			"revisionTime": "2017-07-11T11:58:19Z"
+		},
+		{
+			"checksumSHA1": "+lIUrdF5DkSZaOaNSgyiwQ9PfmE=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "abf9c25f54453410d0c6668e519582a9e1115027",
+			"revisionTime": "2017-07-10T15:57:01Z"
+		}
+	],
+	"rootPath": "github.com/JaredReisinger/xyzzybot"
+}
