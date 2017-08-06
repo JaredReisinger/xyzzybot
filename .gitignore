@@ -3,5 +3,7 @@ xyzzybot
 config/*
 !config/example.json
 
+_working-root/
+
 # generated files...
 *_string.go

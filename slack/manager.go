@@ -19,6 +19,7 @@ type Config struct {
 	Logger             log.FieldLogger
 	Games              games.Repository
 	InterpreterFactory glk.InterpreterFactory
+	WorkingRoot        string
 }
 
 // Manager ...

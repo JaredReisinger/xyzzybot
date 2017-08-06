@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"flag"
 	"io/ioutil"
+	"path"
+	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -12,6 +14,7 @@ import (
 // service.
 type Config struct {
 	GameDirectory string
+	WorkingRoot   string
 	BotToken      string
 	BotTokenFile  string
 	Admins        []string
@@ -42,7 +45,26 @@ func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config,
 		return
 	}
 
+	// Make sure any file paths are resolved relative to the config file.
+	// These need to be absolute paths if possible, because we will sometimes
+	// run executables (the game interpreter) from different directories
+	absConfig, err := filepath.Abs(configFile)
+	if err != nil {
+		logger.WithError(err).Error("getting config file absolute path")
+		return
+	}
+	configDir := filepath.Dir(absConfig)
+	absolutize(configDir, &config.GameDirectory)
+	absolutize(configDir, &config.WorkingRoot)
+	absolutize(configDir, &config.BotTokenFile)
+
 	return
+}
+
+func absolutize(baseDir string, relative *string) {
+	if relative != nil && *relative != "" {
+		*relative = path.Join(baseDir, *relative)
+	}
 }
 
 // AddConfigFlag adds the standard "-config" command-line flag for users of

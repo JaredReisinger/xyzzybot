@@ -6,7 +6,7 @@ import (
 
 // InterpreterFactory ..
 type InterpreterFactory interface {
-	NewInterpreter(gameFile string, fields log.Fields) (Interpreter, error)
+	NewInterpreter(gameFile string, workingDir string, fields log.Fields) (Interpreter, error)
 }
 
 // Interpreter represents the interface to a Glk-based game interpreter.  Output

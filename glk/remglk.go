@@ -1,6 +1,7 @@
 package glk
 
 import (
+	"bufio"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -12,15 +13,37 @@ import (
 
 // RemGlkFactory ...
 type RemGlkFactory struct {
-	// GameDirectory string
 	Logger log.FieldLogger
 }
 
 // NewInterpreter ...
-func (f *RemGlkFactory) NewInterpreter(gameFile string, fields log.Fields) (i Interpreter, err error) {
+func (f *RemGlkFactory) NewInterpreter(gameFile string, workingDir string,
+	fields log.Fields) (i Interpreter, err error) {
 	logger := f.Logger.WithField("component", "remglk").WithFields(fields)
 
-	cmd := exec.Command("fizmo-remglk", "-fixmetrics", "-width", "80", "-height", "50", gameFile)
+	// Deep in the bowels of fizmo (libglkif) and remglk, the file handling for
+	// save files treats the filename as *just* a name, and not a path. A file
+	// opened with FILETYPE_SAVEGAME is considered FILE_IMPLEMENTATION_GLK,
+	// which means that the stream is opened on the file reference found via
+	// glk_fileref_create_by_name()... this is implemented in remglk's rgfref.c,
+	// around line 147.  Special characters (including path separators) are
+	// stripped, the string is truncated at the first period, the extension
+	// (.glksave) is chosen, and the working directory is prepended.  With luck,
+	// we can call rgfref.c's glkunix_set_base_file() to set the working
+	// directory.  (Alternatively, set the working directory before starting the game?  That might be more reliable...)
+
+	cmd := exec.Command("fizmo-remglk",
+		"-fixmetrics",
+		"-width", "80",
+		"-height", "50",
+		// "-savegame-path", "/Users/jreising/.savegames",
+		// "-autosave-filename", "autosave",
+		// "-restore", "autosave",
+		gameFile)
+
+	// Set the working directory so that game saves and other incidentals
+	// happen in the correct location.
+	cmd.Dir = workingDir
 
 	inPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -87,7 +110,7 @@ func (i *RemGlk) GetOutputChannel() chan *Output {
 func (i *RemGlk) Start() error {
 	// Kick off the out/err listeners?
 	go i.ProcessRemOutput()
-	// go i.ProcessInput()
+	go i.ProcessErr()
 
 	// go i.debugOutput()
 
@@ -135,6 +158,9 @@ func (i *RemGlk) ProcessRemOutput() {
 			i.logger.WithError(err).Error("decoding JSON")
 			// skip/eat the error? perhaps we need a way to pass errors along to
 			// any listeners?
+			remaining := decoder.Buffered()
+			b, _ := ioutil.ReadAll(remaining)
+			i.logger.WithField("remaining", string(b)).Debug("ate remaining buffer")
 			continue
 		}
 
@@ -179,7 +205,22 @@ func (i *RemGlk) ProcessRemOutput() {
 		if len(output.Input) > 0 {
 			i.inputWindow = output.Input[0].ID
 			i.inputGen = output.Input[0].Gen
+		} else {
+			// It seems that some commands (save/restore) don't return output
+			// that includes an input request!
+			i.inputGen = output.Gen
 		}
+	}
+}
+
+// ProcessErr ...
+func (i *RemGlk) ProcessErr() {
+
+	scanner := bufio.NewScanner(i.errPipe)
+
+	for scanner.Scan() {
+		t := scanner.Text()
+		i.logger.WithField("stderr", t).Debug("reading errPipe")
 	}
 }
 
@@ -228,38 +269,33 @@ func (i *RemGlk) Kill() {
 	}
 }
 
-func (i *RemGlk) sendCommand(command string, commandType string) {
-	i.logger.WithField("command", command).Info("handling command")
+func (i *RemGlk) sendInput(input string, t InputType) error {
+	i.logger.WithFields(log.Fields{
+		"input":  input,
+		"type":   t,
+		"window": i.inputWindow,
+		"gen":    i.inputGen,
+	}).Info("sending input")
 
 	// We need to know the last gen and the correct window...
 	c := &Input{
-		Type:   LineInput, //commandType,
+		Type:   t,
 		Gen:    i.inputGen,
 		Window: i.inputWindow,
-		Value:  command,
+		Value:  input,
 	}
 
-	i.SendInput(c)
+	return i.SendInput(c)
 }
 
 // SendLine ...
 func (i *RemGlk) SendLine(line string) error {
-	return i.SendInput(&Input{
-		Type:   LineInput,
-		Gen:    i.inputGen,
-		Window: i.inputWindow,
-		Value:  line,
-	})
+	return i.sendInput(line, LineInput)
 }
 
 // SendChar ...
 func (i *RemGlk) SendChar(char rune) error {
-	return i.SendInput(&Input{
-		Type:   CharInput,
-		Gen:    i.inputGen,
-		Window: i.inputWindow,
-		Value:  string(char),
-	})
+	return i.sendInput(string(char), CharInput)
 }
 
 // SendInput ...

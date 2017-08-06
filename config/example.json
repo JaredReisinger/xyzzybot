@@ -1,5 +1,6 @@
 {
     "gameDirectory": "/usr/local/games",
+    "workingRoot": "/usr/local/var/xyzzybot",
     "botTokenFile": "/usr/local/etc/xyzzybot/token.txt",
     "botToken": "xoxb-1234567890ab-123456789012345678901234",
     "admins" : [

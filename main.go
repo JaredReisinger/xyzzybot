@@ -11,6 +11,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/JaredReisinger/xyzzybot/console"
 	"github.com/JaredReisinger/xyzzybot/games"
 	"github.com/JaredReisinger/xyzzybot/glk"
 	"github.com/JaredReisinger/xyzzybot/slack"
@@ -18,6 +19,7 @@ import (
 
 const (
 	defaultGameDirectory = "/usr/local/games"
+	defaultWorkingRoot   = "/usr/local/var/xyzzybot"
 	defaultConfigFile    = "/usr/local/etc/xyzzybot/config.json"
 )
 
@@ -31,11 +33,17 @@ func main() {
 	gameDirParam := flag.String("game-dir", "",
 		"directory to use for games")
 
+	workingRootParam := flag.String("working-root", "",
+		"directory root for dynamic configuration and game saves/state")
+
 	tokenParam := flag.String("token", "",
 		"Slack bot token to use for authentication")
 
 	tokenFileParam := flag.String("token-file", "",
 		"file to read for Slack bot token")
+
+	consoleParam := flag.Bool("console", false,
+		"use console instead of Slack (for debugging/testing)")
 
 	flag.Parse()
 
@@ -43,8 +51,7 @@ func main() {
 	configFile := *configParam
 	requireConfig := true
 
-	if configFile == "" {
-		configFile = defaultConfigFile
+	if fallback("config file", &configFile, defaultConfigFile, logger) {
 		requireConfig = false
 	}
 
@@ -59,39 +66,20 @@ func main() {
 
 	// override any config values with command-line ones...
 
-	if *gameDirParam != "" {
-		if config.GameDirectory != "" {
-			logger.WithFields(log.Fields{
-				"configVal": config.GameDirectory,
-				"paramVal":  *gameDirParam,
-			}).Debug("overriding game directory from config")
-		}
-		config.GameDirectory = *gameDirParam
-	}
+	overrideParam("game directory", &config.GameDirectory, gameDirParam, logger)
 
-	if *tokenFileParam != "" {
-		if config.BotTokenFile != "" || config.BotToken != "" {
-			logger.WithFields(log.Fields{
-				"configVal":   config.BotTokenFile,
-				"configToken": config.BotToken,
-				"paramVal":    *tokenFileParam,
-			}).Debug("token file overriding token info from config")
-		}
-		config.BotTokenFile = *tokenFileParam
-		// a command-line token file overrides a token from the config file
+	overrideParam("working root", &config.WorkingRoot, workingRootParam, logger)
+
+	if overrideParam("token file", &config.BotTokenFile, tokenFileParam, logger) {
+		// a command-line token file also overrides a token from config
 		config.BotToken = ""
 	}
 
-	if *tokenParam != "" {
-		if config.BotToken != "" {
-			logger.WithFields(log.Fields{
-				"configVal": config.BotToken,
-				"paramVal":  *tokenParam,
-			}).Debug("token overriding token from config")
-		}
-		config.BotToken = *tokenParam
-	}
+	overrideParam("token", &config.BotToken, tokenParam, logger)
 
+	// And one final check... if we have both a token and token file, just
+	// use the token.  In this case we also clear out the token file config
+	// setting so that they can't disagree.
 	if config.BotTokenFile != "" && config.BotToken != "" {
 		logger.WithFields(log.Fields{
 			"tokenFile": config.BotTokenFile,
@@ -100,6 +88,9 @@ func main() {
 		config.BotTokenFile = ""
 	}
 
+	// If we *still* have a token file, it means we *don't* have a token... so
+	// we need to read the file.  In this case, we *keep* the token file value
+	// as well, which helps make it clear that the token *came from* the file.
 	if config.BotTokenFile != "" {
 		config.BotToken, err = readTokenFile(config.BotTokenFile, logger)
 		if err != nil {
@@ -108,11 +99,8 @@ func main() {
 	}
 
 	// Fill in any defaults if they're still not set...
-
-	if config.GameDirectory == "" {
-		logger.WithField("value", defaultGameDirectory).Debug("falling back to default game directory")
-		config.GameDirectory = defaultGameDirectory
-	}
+	fallback("game directory", &config.GameDirectory, defaultGameDirectory, logger)
+	fallback("working root", &config.WorkingRoot, defaultWorkingRoot, logger)
 
 	// If we don't have a bot token, that's a fatal error...
 	if config.BotToken == "" {
@@ -131,27 +119,71 @@ func main() {
 		Logger:    logBase,
 	}
 
-	botConfig := &slack.Config{
-		BotToken:           config.BotToken,
-		Admins:             config.Admins,
-		Logger:             logBase,
-		Games:              gamesFS,
-		InterpreterFactory: terpFactory,
-	}
-
 	logger.Info("Starting xyzzybot...")
 	defer logger.Info("xyzzybot exited")
 
-	manager, err := slack.StartManager(botConfig)
-	if err != nil {
-		logger.WithError(err).Error("starting slack manager")
-		return
+	// wow... slack/console looks interface-able!
+	if *consoleParam {
+		consoleConfig := &console.Config{
+			Logger:             logBase,
+			Games:              gamesFS,
+			WorkingRoot:        config.WorkingRoot,
+			InterpreterFactory: terpFactory,
+		}
+
+		c, err := console.StartConsole(consoleConfig)
+		if err != nil {
+			logger.WithError(err).Error("starting console")
+			return
+		}
+		defer c.Disconnect()
+	} else {
+		botConfig := &slack.Config{
+			BotToken:           config.BotToken,
+			Admins:             config.Admins,
+			Logger:             logBase,
+			Games:              gamesFS,
+			WorkingRoot:        config.WorkingRoot,
+			InterpreterFactory: terpFactory,
+		}
+
+		manager, err := slack.StartManager(botConfig)
+		if err != nil {
+			logger.WithError(err).Error("starting slack manager")
+			return
+		}
+		defer manager.Disconnect()
 	}
-	defer manager.Disconnect()
 
 	runUntilSignal(logger)
 
 	logger.Info("xyzzybot exiting")
+}
+
+func overrideParam(name string, configVal *string, paramVal *string, logger log.FieldLogger) bool {
+	if *paramVal == "" {
+		return false
+	}
+
+	if *configVal != "" {
+		logger.WithFields(log.Fields{
+			"configVal": *configVal,
+			"paramVal":  *paramVal,
+		}).Debugf("overriding %s from config", name)
+	}
+
+	*configVal = *paramVal
+	return true
+}
+
+func fallback(name string, val *string, defaultVal string, logger log.FieldLogger) bool {
+	if *val != "" {
+		return false
+	}
+
+	logger.WithField("value", defaultVal).Debugf("falling back to default %s", name)
+	*val = defaultVal
+	return true
 }
 
 func readTokenFile(tokenFile string, logger log.FieldLogger) (token string, err error) {

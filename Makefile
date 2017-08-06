@@ -27,7 +27,7 @@ update-dependencies:
 .PHONY: update-dependencies
 
 try: build
-	./xyzzybot -config ./config/development.json
+	./xyzzybot -config ./config/development.json -console
 .PHONY: try
 
 shell:

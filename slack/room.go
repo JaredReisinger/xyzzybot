@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -66,10 +67,18 @@ func newRoom(config *Config, manager *Manager, id string, roomType roomType, nam
 	}
 }
 
-func (r *Room) startGame(name string) error {
+func (r *Room) startGame(name string) (err error) {
 	if r.gameInProgress() {
-		err := errors.New("game already in progress, ignoring start-game request")
+		err = errors.New("game already in progress, ignoring start-game request")
 		r.logger.WithError(err).Error("starting game")
+		return err
+	}
+
+	// Create a working directory for the interpreter...
+	workingDir := path.Join(r.config.WorkingRoot, r.ID)
+	err = os.MkdirAll(workingDir, os.FileMode(0755))
+	if err != nil {
+		r.logger.WithError(err).Error("creating working directory")
 		return err
 	}
 
@@ -80,8 +89,9 @@ func (r *Room) startGame(name string) error {
 		r.logger.WithError(err).Error("getting game file")
 		return err
 	}
-	i, err := r.config.InterpreterFactory.NewInterpreter(gameFile, log.Fields{
+	i, err := r.config.InterpreterFactory.NewInterpreter(gameFile, workingDir, log.Fields{
 		"game": name,
+		"room": r.ID,
 	})
 	if err != nil {
 		r.logger.WithError(err).Error("starting interpreter")
@@ -156,18 +166,7 @@ func inferStatusWindow(w *glk.Window) bool {
 }
 
 func (r *Room) debugFormat(output *glk.Output) string {
-	sep1 := "============================================================"
-	sep2 := "------------------------------------------------------------"
-	lines := []string{sep1}
-
-	for _, w := range output.Windows {
-		lines = append(lines, formatWindow(w))
-		lines = append(lines, sep2)
-	}
-
-	lines = append(lines, sep1)
-
-	return strings.Join(lines, "\n")
+	return formatDebugOutput(output)
 }
 
 func (r *Room) killGame() {
