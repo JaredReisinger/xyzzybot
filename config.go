@@ -62,7 +62,7 @@ func ParseConfigFile(configFile string, logger log.FieldLogger) (config *Config,
 }
 
 func absolutize(baseDir string, relative *string) {
-	if relative != nil && *relative != "" {
+	if relative != nil && *relative != "" && !path.IsAbs(*relative) {
 		*relative = path.Join(baseDir, *relative)
 	}
 }

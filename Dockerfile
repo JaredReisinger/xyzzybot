@@ -1,4 +1,4 @@
-# Use golang to build the bot binary, and then add it to the fizmo-remglk
+# Use golang to build the bot binary, and then add it to the fizmo-json
 # image to get the complete set of tools.
 
 # Note that this will not auto-build on Docker Hub until shortly after
@@ -28,10 +28,10 @@ RUN set -eux; \
 # CMD ["go-wrapper", "run"]
 
 
-FROM jaredreisinger/fizmo-remglk
+FROM jaredreisinger/fizmo-json
 
 LABEL maintainer="jaredreisinger@hotmail.com" \
-    xyzzybot.version="0.1"
+    xyzzybot.version="0.2"
 
 COPY --from=build /go/src/github.com/JaredReisinger/xyzzybot/xyzzybot /usr/local/bin/
 

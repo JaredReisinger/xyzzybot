@@ -63,18 +63,18 @@ used without deeper slash-command integration.)
 ## Components
 
 xyzzybot stands on the shoulders of giants... under the covers, it’s using
-[Christoph Ender’s fizmo-remglk](https://github.com/chrender/fizmo-remglk) as
+[Christoph Ender’s libfizmo](https://github.com/chrender/libfizmo) as
 the game interpreter, which in turn is a combination of [Ender’s
 libfizmo](https://github.com/chrender/libfizmo) and [Andrew Plotkin’s RemGlk
 library](http://eblong.com/zarf/glk/index.html).  This provides a game
 interpreter whose stdin/stdout is structured JSON data, rather than simple lines
 of text from which paragraphs and other formatting must be inferred.  (These are
 all conveniently packaged as the Docker image
-[jaredreisinger/fizmo-remglk](https://hub.docker.com/r/jaredreisinger/fizmo-remglk/),
+[jaredreisinger/fizmo-json](https://hub.docker.com/r/jaredreisinger/fizmo-json/),
 making it easy to acquire and consume.)
 
 Internally, xyzzybot is composed of two basic parts: interacting with the game
-interpreter (fizmo-remglk), and interacting with Slack.
+interpreter (fizmo-json), and interacting with Slack.
 
 
 ### Interpreter model

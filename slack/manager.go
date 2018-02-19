@@ -2,14 +2,15 @@ package slack
 
 import (
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/nlopes/slack"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/JaredReisinger/xyzzybot/fizmo"
 	"github.com/JaredReisinger/xyzzybot/games"
-	"github.com/JaredReisinger/xyzzybot/glk"
 )
 
 // Config for Slack components...
@@ -18,7 +19,7 @@ type Config struct {
 	Admins             []string
 	Logger             log.FieldLogger
 	Games              games.Repository
-	InterpreterFactory glk.InterpreterFactory
+	InterpreterFactory fizmo.InterpreterFactory
 	WorkingRoot        string
 }
 
@@ -149,6 +150,10 @@ func (manager *Manager) processEvent(managerEvent slack.RTMEvent) {
 		// }).Info("rename channel")
 		manager.renameRoom(t.Channel.ID, t.Channel.Name)
 
+	case *slack.FileSharedEvent:
+		manager.logger.WithField("id", t.FileID).Info("file shared")
+		manager.handleFileEvent(t)
+
 	case *slack.GroupJoinedEvent:
 		manager.logger.WithField("channel", t.Channel).Info("joined group (private channel)")
 		manager.addRoom(t.Channel.ID, groupRoom, t.Channel.Name, createChannelLink(&t.Channel), false)
@@ -271,6 +276,81 @@ func (manager *Manager) removeRoom(channel string) {
 	delete(manager.rooms, channel)
 }
 
+func (manager *Manager) handleFileEvent(fileEvent *slack.FileSharedEvent) {
+	file, _, _, err := manager.slackRTM.Client.GetFileInfo(fileEvent.FileID, 0, 0)
+	if err != nil {
+		manager.logger.WithField("fileID", fileEvent.FileID).WithError(err).Error("getting file info")
+		return
+	}
+
+	user, admin := manager.getUser(file.User)
+
+	logger := manager.logger.WithFields(log.Fields{
+		"file":   file.Name,
+		"userID": file.User,
+		"user":   user.Name,
+	})
+
+	logger.WithFields(log.Fields{
+		"comment":     file.InitialComment.Comment,
+		"commentUser": file.InitialComment.User,
+		// "title":              file.Title,
+		// "channels":           file.Channels,
+		// "groups":             file.Groups,
+		// "ims":                file.IMs,
+		// "filetype":           file.Filetype,
+		// "mimetype":           file.Mimetype,
+		// "url":                file.URL,
+		"urldownload": file.URLDownload,
+		// "urlprivate":         file.URLPrivate,
+		"urlprivatedownload": file.URLPrivateDownload,
+		// "DUMP":               file,
+	}).Info("file info")
+
+	// only allow from admins...
+	if !admin {
+		logger.Info("ignoring file from non-admin")
+		return
+	}
+
+	if !manager.isExplicitlyToMe(file.InitialComment.Comment) &&
+		!strings.Contains(file.InitialComment.Comment, "upload") {
+		logger.Info("ignoring file without upload comment")
+		return
+	}
+
+	err = manager.downloadGame(file.URLPrivateDownload, file.Name)
+	if err != nil {
+		manager.sendMessage(file.User, err.Error())
+		return
+	}
+
+	manager.sendMessage(file.User, fmt.Sprintf("Upload complete!  The game *%s* is now available!", file.Name))
+}
+
+func (manager *Manager) downloadGame(uri string, filename string) error {
+	logger := manager.logger.WithFields(log.Fields{
+		"url":  uri,
+		"name": filename,
+	})
+
+	logger.Debug("downloading game")
+	resp, err := http.Get(uri)
+	if err != nil {
+		logger.WithError(err).Error("downloading game")
+		return fmt.Errorf("I wasn’t able to download %s... %s", uri, err.Error())
+	}
+	defer resp.Body.Close()
+
+	err = manager.config.Games.AddGameFile(filename, resp.Body)
+	if err != nil {
+		logger.WithField("game", filename).WithError(err).Error("saving game")
+		return fmt.Errorf("I wasn't able to save %s to %s... %s", uri, filename, err.Error())
+	}
+
+	return nil
+}
+
 func (manager *Manager) handleMessageEvent(msgEvent *slack.MessageEvent) {
 	// TODO: only turn on with increased verbosity?
 	// manager.logger.WithFields(log.Fields{
@@ -329,6 +409,18 @@ func (manager *Manager) isForSomeoneElse(text string) bool {
 	}
 
 	return false
+}
+
+func (manager *Manager) getUser(userID string) (*slack.User, bool) {
+	user, err := manager.slackRTM.GetUserInfo(userID)
+	if err == nil {
+		for _, a := range manager.config.Admins {
+			if strings.EqualFold(user.Name, a) {
+				return user, true
+			}
+		}
+	}
+	return user, false
 }
 
 func (manager *Manager) isExplicitlyToMe(text string) bool {

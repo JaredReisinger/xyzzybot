@@ -4,19 +4,20 @@ import (
 	"bufio"
 	"io"
 	"os"
+	"path"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/JaredReisinger/xyzzybot/fizmo"
 	"github.com/JaredReisinger/xyzzybot/games"
-	"github.com/JaredReisinger/xyzzybot/glk"
 )
 
 // Config ...
 type Config struct {
 	Logger             log.FieldLogger
 	Games              games.Repository
-	InterpreterFactory glk.InterpreterFactory
+	InterpreterFactory fizmo.InterpreterFactory
 	WorkingRoot        string
 }
 
@@ -25,7 +26,7 @@ type Console struct {
 	config *Config
 	logger log.FieldLogger
 	quit   chan bool
-	interp glk.Interpreter
+	interp fizmo.Interpreter
 }
 
 // StartConsole ...
@@ -61,7 +62,7 @@ func (c *Console) handleInput(input string) {
 
 	if !meta && inGame {
 		// send to game!
-		c.interp.SendLine(input)
+		c.interp.Send(input)
 		return
 	}
 
@@ -73,10 +74,10 @@ func (c *Console) handleInput(input string) {
 	}
 
 	switch command {
-	case "space":
-		if inGame {
-			c.interp.SendChar(' ')
-		}
+	// case "space":
+	// 	if inGame {
+	// 		c.interp.SendChar(' ')
+	// 	}
 	case "list":
 		c.commandList()
 	case "play":
@@ -96,15 +97,24 @@ func (c *Console) commandPlay(game string) {
 		return
 	}
 
+	// Create a working directory for the interpreter...
+	workingDir := path.Join(c.config.WorkingRoot, "console")
+	err := os.MkdirAll(workingDir, os.FileMode(0755))
+	if err != nil {
+		c.logger.WithError(err).Error("creating working directory")
+		return
+	}
+
+	c.logger.WithField("game", game).Info("starting game")
 	gameFile, err := c.config.Games.GetGameFile(game)
 	if err != nil {
 		c.logger.WithError(err).Error("getting game file")
 		return
 	}
 
-	i, err := c.config.InterpreterFactory.NewInterpreter(gameFile, c.config.WorkingRoot, log.Fields{"game": game})
+	i, err := c.config.InterpreterFactory.NewInterpreter(gameFile, workingDir, log.Fields{"game": game})
 	if err != nil {
-		c.logger.WithError(err).Error("starting game")
+		c.logger.WithError(err).Error("creating interpreter")
 		return
 	}
 
@@ -129,7 +139,7 @@ func (c *Console) commandList() {
 	c.logger.WithField("games", games).Info("games")
 }
 
-func (c *Console) processOutput(outchan chan *glk.Output) {
+func (c *Console) processOutput(outchan chan *fizmo.Output) {
 	c.logger.Info("setting up game output handler")
 	for {
 		output := <-outchan

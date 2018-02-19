@@ -12,8 +12,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/JaredReisinger/xyzzybot/console"
+	"github.com/JaredReisinger/xyzzybot/fizmo"
 	"github.com/JaredReisinger/xyzzybot/games"
-	"github.com/JaredReisinger/xyzzybot/glk"
 	"github.com/JaredReisinger/xyzzybot/slack"
 )
 
@@ -110,7 +110,7 @@ func main() {
 	logger.WithField("config", config).Debug("using config")
 
 	// Create components...
-	terpFactory := &glk.RemGlkFactory{
+	terpFactory := &fizmo.ExternalProcessFactory{
 		Logger: logBase,
 	}
 

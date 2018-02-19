@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := build
 
 IMAGE_NAME := jaredreisinger/xyzzybot
-IMAGE_VERSION := 0.1
+IMAGE_VERSION := 0.2
 
 build:
 	go build -v .
@@ -29,6 +29,10 @@ update-dependencies:
 try: build
 	./xyzzybot -config ./config/development.json -console
 .PHONY: try
+
+try-slack: build
+	./xyzzybot -config ./config/development.json
+.PHONY: try-slack
 
 shell:
 	docker run --rm \

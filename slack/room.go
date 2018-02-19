@@ -3,7 +3,7 @@ package slack
 import (
 	"errors"
 	"fmt"
-	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"regexp"
@@ -12,7 +12,7 @@ import (
 	"github.com/nlopes/slack"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/JaredReisinger/xyzzybot/glk"
+	"github.com/JaredReisinger/xyzzybot/fizmo"
 )
 
 const (
@@ -47,7 +47,7 @@ type Room struct {
 	link        string // formatted `<#C1234|foo>` or `<@U1234|bob>` link
 	config      *Config
 	manager     *Manager
-	interpreter glk.Interpreter
+	interpreter fizmo.Interpreter
 	logger      log.FieldLogger
 }
 
@@ -110,7 +110,7 @@ func (r *Room) startGame(name string) (err error) {
 	return nil
 }
 
-func (r *Room) listenForGameOutput(outchan chan *glk.Output) {
+func (r *Room) listenForGameOutput(outchan chan *fizmo.Output) {
 	r.logger.Info("setting up game output handler")
 	for {
 		output := <-outchan
@@ -126,20 +126,23 @@ func (r *Room) listenForGameOutput(outchan chan *glk.Output) {
 	}
 }
 
-func (r *Room) sendOutputMessage(output *glk.Output) {
-	lines := []string{}
-	status := ""
+func (r *Room) sendOutputMessage(output *fizmo.Output) {
+	statusParts := []string{}
 
-	for _, w := range output.Windows {
-		windowText := formatWindow(w)
-
-		// If the window looks like a status window, save its text separately as
-		// status.
-		if inferStatusWindow(w) {
-			status = windowText
-		} else {
-			lines = append(lines, formatWindow(w))
+	for _, col := range output.Status.Columns {
+		columnParts := []string{}
+		for _, line := range col.Lines {
+			columnParts = append(columnParts, formatSpans(line.Text))
 		}
+		statusParts = append(statusParts, strings.Join(columnParts, " | "))
+	}
+
+	status := strings.Join(statusParts, " — ")
+
+	lines := []string{}
+
+	for _, line := range output.Story {
+		lines = append(lines, formatSpans(line))
 	}
 
 	text := strings.Join(lines, "\n")
@@ -159,13 +162,13 @@ func (r *Room) sendOutputMessage(output *glk.Output) {
 	r.sendMessageWithNameContext(msg, status, "game output")
 }
 
-func inferStatusWindow(w *glk.Window) bool {
-	return w.Type == glk.TextGridWindow &&
-		w.Top == 0 &&
-		w.Height <= 5
-}
+// func inferStatusWindow(w *fizmo.Window) bool {
+// 	return w.Type == fizmo.TextGridWindow &&
+// 		w.Top == 0 &&
+// 		w.Height <= 5
+// }
 
-func (r *Room) debugFormat(output *glk.Output) string {
+func (r *Room) debugFormat(output *fizmo.Output) string {
 	return formatDebugOutput(output)
 }
 
@@ -274,22 +277,22 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 			"kill the current in-progress game",
 			"[long help for kill]",
 		},
-		&commandDescription{
-			"space",
-			r.commandSpace,
-			false,
-			true,
-			"send a space character to the game (needed for some prompts)",
-			"[long help for space]",
-		},
-		&commandDescription{
-			"key",
-			r.commandKey,
-			false,
-			true,
-			"with a character (*%[1]skey x*), sends a raw key to the game",
-			"[long help for key]",
-		},
+		// &commandDescription{
+		// 	"space",
+		// 	r.commandSpace,
+		// 	false,
+		// 	true,
+		// 	"send a space character to the game (needed for some prompts)",
+		// 	"[long help for space]",
+		// },
+		// &commandDescription{
+		// 	"key",
+		// 	r.commandKey,
+		// 	false,
+		// 	true,
+		// 	"with a character (*%[1]skey x*), sends a raw key to the game",
+		// 	"[long help for key]",
+		// },
 		&commandDescription{
 			"upload",
 			r.commandUpload,
@@ -304,9 +307,8 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 func (r *Room) handleCommand(msgEvent *slack.MessageEvent, command string) {
 	// If we have an interpreter, it gets the command.  Otherwise (or if there's
 	// a leading metaCommandPrefix), it's a meta-command.
-
 	if r.gameInProgress() && !strings.HasPrefix(command, metaCommandPrefix) {
-		r.interpreter.SendLine(command)
+		r.interpreter.Send(command)
 		return
 	}
 
@@ -430,15 +432,8 @@ func (r *Room) helpCommands() {
 }
 
 func (r *Room) fromAdmin(cmdContext *commandContext) bool {
-	user, err := r.manager.slackRTM.GetUserInfo(cmdContext.msgEvent.User)
-	if err == nil {
-		for _, a := range r.config.Admins {
-			if strings.EqualFold(user.Name, a) {
-				return true
-			}
-		}
-	}
-	return false
+	_, admin := r.manager.getUser(cmdContext.msgEvent.User)
+	return admin
 }
 
 func (r *Room) commandStatus(cmdContext *commandContext, command string, args ...string) {
@@ -520,7 +515,11 @@ func (r *Room) commandPlay(cmdContext *commandContext, command string, args ...s
 		return
 	}
 
-	r.startGame(args[0])
+	err := r.startGame(args[0])
+	if err != nil {
+		// r.killGame()
+		r.sendMessage(fmt.Sprintf("There was a problem starting the game: “%s”", err.Error()))
+	}
 }
 
 func (r *Room) commandKill(cmdContext *commandContext, command string, args ...string) {
@@ -532,30 +531,30 @@ func (r *Room) commandKill(cmdContext *commandContext, command string, args ...s
 	r.killGame()
 }
 
-func (r *Room) commandSpace(cmdContext *commandContext, command string, args ...string) {
-	if !r.gameInProgress() {
-		r.sendMessage("There's _not_ currently a game in progress!")
-		return
-	}
-
-	// r.interpreter.SendKey(" ")
-	r.interpreter.SendChar(' ')
-}
-
-func (r *Room) commandKey(cmdContext *commandContext, command string, args ...string) {
-	if !r.gameInProgress() {
-		r.sendMessage("There's _not_ currently a game in progress!")
-		return
-	}
-
-	key := " "
-	if len(args) > 0 {
-		key = args[0]
-	}
-
-	// r.interpreter.SendKey(key)
-	r.interpreter.SendChar(rune(key[0]))
-}
+// func (r *Room) commandSpace(cmdContext *commandContext, command string, args ...string) {
+// 	if !r.gameInProgress() {
+// 		r.sendMessage("There's _not_ currently a game in progress!")
+// 		return
+// 	}
+//
+// 	// r.interpreter.SendKey(" ")
+// 	r.interpreter.Send(" ")
+// }
+//
+// func (r *Room) commandKey(cmdContext *commandContext, command string, args ...string) {
+// 	if !r.gameInProgress() {
+// 		r.sendMessage("There's _not_ currently a game in progress!")
+// 		return
+// 	}
+//
+// 	key := " "
+// 	if len(args) > 0 {
+// 		key = args[0]
+// 	}
+//
+// 	// r.interpreter.SendKey(key)
+// 	r.interpreter.SendChar(rune(key[0]))
+// }
 
 var gameLink = regexp.MustCompile("<(.+)(|.+)?>")
 
@@ -566,37 +565,36 @@ func (r *Room) commandUpload(cmdContext *commandContext, command string, args ..
 	}
 
 	// Slack wraps "<>" around URLs, so we need to strip them...
-	url := args[0]
-	if strings.HasPrefix(url, "<") {
+	uri := args[0]
+	if strings.HasPrefix(uri, "<") {
 		matches := gameLink.FindStringSubmatch(args[0])
 		if matches == nil {
-			r.logger.WithField("url", url).Error("could not extract url")
-			r.sendMessage(fmt.Sprintf("I’m sorry, I couldn’t make sense of `%s` as a url. ", url))
+			r.logger.WithField("url", uri).Error("could not extract url")
+			r.sendMessage(fmt.Sprintf("I’m sorry, I couldn’t make sense of `%s` as a url.", uri))
 			return
 		}
-		url = matches[1]
+		uri = matches[1]
 	}
 
-	logger2 := r.logger.WithField("url", url)
+	logger := r.logger.WithField("url", uri)
 
-	logger2.Debug("downloading game")
-	resp, err := http.Get(url)
+	urlParts, err := url.Parse(uri)
 	if err != nil {
-		logger2.WithError(err).Error("downloading game")
-		r.sendMessage(fmt.Sprintf("I wasn’t able to download %s... %s", url, err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	gameName := path.Base(resp.Request.URL.Path)
-	err = r.config.Games.AddGameFile(gameName, resp.Body)
-	if err != nil {
-		logger2.WithField("game", gameName).WithError(err).Error("saving game")
-		r.sendMessage(fmt.Sprintf("I wasn't able to save %s to %s... %s", url, gameName, err.Error()))
+		logger.WithError(err).Error("could not parse url")
+		r.sendMessage(fmt.Sprintf("I wasn’t able to understand %s... %s", uri, err.Error()))
 		return
 	}
 
-	r.sendMessage(fmt.Sprintf("Upload complete!  The game *%s* is now available!", gameName))
+	filename := path.Base(urlParts.Path)
+	err = r.manager.downloadGame(uri, filename)
+	if err != nil {
+		logger.WithError(err).Error("downloading")
+		r.sendMessage(err.Error())
+		return
+	}
+
+	r.sendMessage(fmt.Sprintf("Upload complete!  The game *%s* is now available!", filename))
+
 }
 
 func (r *Room) commandUnknown(cmdContext *commandContext, command string, args ...string) {

@@ -4,62 +4,48 @@ import (
 	"fmt"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
-
-	"github.com/JaredReisinger/xyzzybot/glk"
+	"github.com/JaredReisinger/xyzzybot/fizmo"
 )
 
-func formatSpan(span *glk.Span, singleSpan bool) string {
+func formatSpan(span *fizmo.Span, singleSpan bool) string {
 	// log.WithField("span", span).Debug("formatSpan")
-	formatted := ""
-	format := "%s"
-	switch span.Style {
-	case glk.NormalSpan:
-		format = "%s"
-	case glk.EmphasizedSpan:
-		format = "_%s_"
-	case glk.PreformattedSpan:
-		format = "`%s`"
-		// If there's leading whitespace, and this is a single span, we
-		// probably want to make the leading (and any trailing) whitepace *not*
-		// preformatted.
-		if singleSpan && span.Text[0] == ' ' {
-			// log.Debug("leading-space, single-span preformatted text!")
-			mid := strings.TrimLeft(span.Text, " ")
-			formatted = fmt.Sprintf("%s`%s`", strings.Repeat(" ", len(span.Text)-len(mid)), mid)
-		}
-	case glk.HeaderSpan:
-		format = "*%s*"
-	case glk.SubheaderSpan:
-		format = "*%s*"
-	case glk.AlertSpan:
-		format = "[alert: %s]"
-	case glk.NoteSpan:
-		format = "[note: %s]"
-	case glk.BlockQuoteSpan:
-		format = "> %s"
-	case glk.InputSpan:
-		if singleSpan {
-			format = "_command: *%q*_\n"
-		} else {
-			format = "_command: *%q*_"
-		}
-	case glk.User1Span:
-		format = "%s"
-	case glk.User2Span:
-		format = "%s"
-	default:
-		log.WithField("style", span.Style).Warn("unknown style")
+	text := span.Text
+	leading := ""
+	trailing := ""
+
+	// We sometimes get single span lines with leading/trailing whitespace
+	// but formatting.  This looks bad, so we move the formatting codes to
+	// "inside" the whitespace.
+	if singleSpan {
+		trimLeft := strings.TrimLeft(text, " ")
+		trimRight := strings.TrimRight(text, " ")
+		leading = strings.Repeat(" ", len(text)-len(trimLeft))
+		trailing = strings.Repeat(" ", len(text)-len(trimRight))
+		text = strings.Trim(text, " ")
 	}
 
-	if formatted == "" {
-		formatted = fmt.Sprintf(format, span.Text)
+	boldFmt := ""
+	italicFmt := ""
+	fixedFmt := ""
+
+	if span.Bold {
+		boldFmt = "*"
 	}
+
+	if span.Italic {
+		italicFmt = "_"
+	}
+
+	if span.Fixed {
+		fixedFmt = "`"
+	}
+
+	formatted := fmt.Sprintf("%s%s%s%s%s%s%s%s%s", leading, italicFmt, boldFmt, fixedFmt, text, fixedFmt, boldFmt, italicFmt, trailing)
 
 	return formatted
 }
 
-func formatSpans(spans *glk.Spans) string {
+func formatSpans(spans *fizmo.Spans) string {
 	// log.WithField("spans", spans).Debug("formatSpans")
 	if spans == nil {
 		return ""
@@ -78,64 +64,45 @@ func formatSpans(spans *glk.Spans) string {
 	return strings.Join(line, "\u200d")
 }
 
-func formatTextContent(text *glk.TextContent) string {
-	// log.WithField("text", text).Debug("formatTextContent")
-	return formatSpans(text.Content)
+func formatLine(line *fizmo.Line) string {
+	return formatSpans(line.Text)
 }
 
-func formatLine(line *glk.Line) string {
-	// log.WithField("line", line).Debug("formatLine")
-	return formatSpans(line.Content)
+func formatColumn(column *fizmo.Column) string {
+	parts := make([]string, 0)
+	for _, line := range column.Lines {
+		parts = append(parts, formatLine(line))
+	}
+	return strings.Join(parts, " / ")
 }
 
-func formatWindowContent(window *glk.WindowContent) string {
-	if window == nil {
-		log.Warn("nil glk.WindowContent!")
-		return ""
-	}
-	// log.WithField("window", window).Debug("formatWindowContent")
-
-	// A WindowContent will have *either* Lines or Text... we just let the
-	// range operator short-circuit for us when empty.
-	lines := make([]string, 0, len(window.Lines)+len(window.Text))
-	for _, l := range window.Lines {
-		lines = append(lines, formatLine(l))
-	}
-
-	for _, t := range window.Text {
-		lines = append(lines, formatTextContent(t))
+func formatStatus(status *fizmo.Status) string {
+	lines := make([]string, 0)
+	for _, col := range status.Columns {
+		lines = append(lines, formatColumn(col))
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func formatWindow(window *glk.Window) string {
-	// log.WithField("window", window).Debug("formatWindow")
-	return formatWindowContent(window.Content)
-}
-
-func formatDebugOutput(output *glk.Output) string {
+func formatDebugOutput(output *fizmo.Output) string {
 	// This is where we'd want to infer status windows, etc.
 	sep1 := strings.Repeat("=", 79)
 	sep2 := strings.Repeat("-", 79)
 	lines := []string{"", sep1}
 
-	lines = append(lines, fmt.Sprintf("type: %s, gen: %d", output.Type, output.Gen))
-
-	for _, w := range output.Windows {
-		lines = append(lines, sep2)
-		lines = append(lines, formatWindow(w))
+	// lines = append(lines, fmt.Sprintf("type: %s, gen: %d", output.Type, output.Gen))
+	for _, spans := range output.Story {
+		lines = append(lines, formatSpans(spans))
 	}
 
-	for _, i := range output.Input {
-		lines = append(lines, sep2)
-		lines = append(lines, fmt.Sprintf("input: %s (%d), win: %d, gen: %d", i.Type, i.MaxLen, i.ID, i.Gen))
-	}
+	lines = append(lines, sep2)
+	lines = append(lines, formatStatus(output.Status))
 
-	if output.Message != nil {
-		lines = append(lines, sep2)
-		lines = append(lines, fmt.Sprintf("message: %s", *output.Message))
-	}
+	// if output.Message != nil {
+	// 	lines = append(lines, sep2)
+	// 	lines = append(lines, fmt.Sprintf("message: %s", *output.Message))
+	// }
 
 	lines = append(lines, sep1)
 
