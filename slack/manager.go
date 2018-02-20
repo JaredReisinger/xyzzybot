@@ -291,22 +291,6 @@ func (manager *Manager) handleFileEvent(fileEvent *slack.FileSharedEvent) {
 		"user":   user.Name,
 	})
 
-	logger.WithFields(log.Fields{
-		"comment":     file.InitialComment.Comment,
-		"commentUser": file.InitialComment.User,
-		// "title":              file.Title,
-		// "channels":           file.Channels,
-		// "groups":             file.Groups,
-		// "ims":                file.IMs,
-		// "filetype":           file.Filetype,
-		// "mimetype":           file.Mimetype,
-		// "url":                file.URL,
-		"urldownload": file.URLDownload,
-		// "urlprivate":         file.URLPrivate,
-		"urlprivatedownload": file.URLPrivateDownload,
-		// "DUMP":               file,
-	}).Info("file info")
-
 	// only allow from admins...
 	if !admin {
 		logger.Info("ignoring file from non-admin")
@@ -319,7 +303,23 @@ func (manager *Manager) handleFileEvent(fileEvent *slack.FileSharedEvent) {
 		return
 	}
 
-	err = manager.downloadGame(file.URLPrivateDownload, file.Name)
+	logger.WithFields(log.Fields{
+		"comment":            file.InitialComment.Comment,
+		"commentUser":        file.InitialComment.User,
+		"channels":           file.Channels,
+		"groups":             file.Groups,
+		"ims":                file.IMs,
+		"filetype":           file.Filetype,
+		"mimetype":           file.Mimetype,
+		"url":                file.URL,
+		"urldownload":        file.URLDownload,
+		"urlprivate":         file.URLPrivate,
+		"urlprivatedownload": file.URLPrivateDownload,
+		"size":               file.Size,
+		// "DUMP":               file,
+	}).Info("file info")
+
+	err = manager.downloadGame(file.URLPrivate, file.Name)
 	if err != nil {
 		manager.sendMessage(file.User, err.Error())
 		return
@@ -335,7 +335,14 @@ func (manager *Manager) downloadGame(uri string, filename string) error {
 	})
 
 	logger.Debug("downloading game")
-	resp, err := http.Get(uri)
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	if err != nil {
+		logger.WithError(err).Error("creating request")
+		return fmt.Errorf("I wasn’t able to download %s... %s", uri, err.Error())
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", manager.config.BotToken))
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("downloading game")
 		return fmt.Errorf("I wasn’t able to download %s... %s", uri, err.Error())
@@ -346,6 +353,21 @@ func (manager *Manager) downloadGame(uri string, filename string) error {
 	if err != nil {
 		logger.WithField("game", filename).WithError(err).Error("saving game")
 		return fmt.Errorf("I wasn't able to save %s to %s... %s", uri, filename, err.Error())
+	}
+
+	return nil
+}
+
+func (manager *Manager) deleteGame(filename string) error {
+	logger := manager.logger.WithFields(log.Fields{
+		"name": filename,
+	})
+
+	logger.Debug("deleting game")
+	err := manager.config.Games.DeleteGameFile(filename)
+	if err != nil {
+		logger.WithError(err).Error("deleting game")
+		return err
 	}
 
 	return nil

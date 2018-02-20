@@ -1,6 +1,8 @@
 package games
 
-import "io"
+import (
+	"io"
+)
 
 // Repository abstracts the available games (TODO: move this to a new
 // package?)  Future work: allow adding/downloading of new game files.
@@ -15,4 +17,7 @@ type Repository interface {
 
 	// AddGameFile adds a new game to the repository
 	AddGameFile(fileName string, r io.Reader) error
+
+	// DeleteGameFile removes a game from the repository
+	DeleteGameFile(fileName string) error
 }

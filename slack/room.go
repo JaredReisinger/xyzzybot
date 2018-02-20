@@ -299,7 +299,15 @@ func (r *Room) getCommandDescriptions() []*commandDescription {
 			true,
 			false,
 			"adds a new game to the system from a url",
-			"If you tell me to *upload _url-to-game_*, I’ll retrieve the game and add it to the list.  Note that this will only work if you’re a xyzzybot admin.  If you’re looking for games, try <http://ifdb.tads.org/|the Interactive Fiction Database>",
+			"If you tell me to *upload _url-to-game_*, I’ll retrieve the game and add it to the list.  Note that this will only work if you’re a xyzzybot admin.  If you’re looking for games, try <http://ifdb.tads.org/|the Interactive Fiction Database>.  You can also add a new game to the system by uploading a file with a `@xyzzybot upload` comment.",
+		},
+		&commandDescription{
+			"delete",
+			r.commandDelete,
+			true,
+			false,
+			"remove a game from the system",
+			"If you tell me to *delete _game-name_*, I’ll delete the game from the list.  Note that this will only work if you’re a xyzzybot admin.",
 		},
 	}
 }
@@ -594,6 +602,27 @@ func (r *Room) commandUpload(cmdContext *commandContext, command string, args ..
 	}
 
 	r.sendMessage(fmt.Sprintf("Upload complete!  The game *%s* is now available!", filename))
+
+}
+
+func (r *Room) commandDelete(cmdContext *commandContext, command string, args ...string) {
+	if len(args) != 1 {
+		r.sendMessage("I expect one—and _only_ one—game to remove from the system: *delete _game-name_*")
+		return
+	}
+
+	// Slack wraps "<>" around URLs, so we need to strip them...
+	filename := args[0]
+	logger := r.logger.WithField("game", filename)
+
+	err := r.manager.deleteGame(filename)
+	if err != nil {
+		logger.WithError(err).Error("deleting")
+		r.sendMessage(err.Error())
+		return
+	}
+
+	r.sendMessage(fmt.Sprintf("Delete complete!  The game *%s* is no longer available!", filename))
 
 }
 

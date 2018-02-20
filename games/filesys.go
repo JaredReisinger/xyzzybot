@@ -1,9 +1,11 @@
 package games
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -18,6 +20,21 @@ type FileSys struct {
 // GetGames returns the list of available games.  This may (in the future)
 // include metadata about the games, a game image/icon, etc.
 func (fs *FileSys) GetGames() ([]string, error) {
+	games, err := fs.getGames()
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0)
+
+	for name := range games {
+		names = append(names, name)
+	}
+
+	return names, nil
+}
+
+func (fs *FileSys) getGames() (map[string]os.FileInfo, error) {
 	dir, err := os.Open(fs.Directory)
 	if err != nil {
 		return nil, err
@@ -28,11 +45,14 @@ func (fs *FileSys) GetGames() ([]string, error) {
 		return nil, err
 	}
 
-	games := make([]string, 0, len(infos))
+	games := make(map[string]os.FileInfo)
 
 	for _, info := range infos {
 		if info.Mode().IsRegular() {
-			games = append(games, info.Name())
+			// Remove extension for game list
+			name := info.Name()
+			ext := path.Ext(name)
+			games[strings.TrimSuffix(name, ext)] = info
 		}
 	}
 
@@ -41,13 +61,18 @@ func (fs *FileSys) GetGames() ([]string, error) {
 
 // GetGameFile returns the path to the game (in a form that can be passed to
 // things like game interpreters).
-func (fs *FileSys) GetGameFile(game string) (string, error) {
-	gameFile := path.Join(fs.Directory, game)
-	fs.Logger.WithFields(log.Fields{
-		"game": game,
-		"file": gameFile,
-	}).Info("starting game")
-	return gameFile, nil
+func (fs *FileSys) GetGameFile(name string) (string, error) {
+	games, err := fs.getGames()
+	if err != nil {
+		return "", err
+	}
+
+	info, ok := games[name]
+	if !ok {
+		return "", fmt.Errorf("Game “%s” not found", name)
+	}
+
+	return path.Join(fs.Directory, info.Name()), nil
 }
 
 // AddGameFile adds a new game to the repository
@@ -75,6 +100,28 @@ func (fs *FileSys) AddGameFile(fileName string, r io.Reader) error {
 	}
 
 	logger2.WithField("written", written).Info("game file written")
+
+	return nil
+}
+
+// DeleteGameFile removes a game from the repository
+func (fs *FileSys) DeleteGameFile(fileName string) error {
+	// FUTURE: Ensure there are no relative file parts ("..", "/") in the
+	// name...
+	gameFile := path.Join(fs.Directory, fileName)
+	logger := fs.Logger.WithFields(log.Fields{
+		"game": fileName,
+		"file": gameFile,
+	})
+
+	logger.Info("deleting game")
+	err := os.Remove(gameFile)
+	if err != nil {
+		logger.WithError(err).Error("deleting game file")
+		return err
+	}
+
+	logger.Info("game file deleted")
 
 	return nil
 }
